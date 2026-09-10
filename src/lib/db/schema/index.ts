@@ -1,0 +1,27 @@
+/**
+ * Drizzle schema for the dashboard's own database.
+ *
+ * The tenancy hierarchy this encodes:
+ *
+ *   Organization
+ *    |-- Projects
+ *    |     |-- API Keys        (project + provider + environment)
+ *    |     '-- Monitored Databases
+ *    '-- (AI Providers are a global catalogue, not tenant data)
+ *
+ * Every tenant-owned table carries `organization_id`, and child rows that
+ * reference a project do so through a *composite* foreign key on
+ * (organization_id, project_id). That makes cross-organization references
+ * impossible at the database level rather than merely unlikely.
+ *
+ * Metric and alert tables arrive in Phases 6, 8 and 13.
+ */
+
+export * from './columns';
+export * from './enums';
+export * from './organizations';
+export * from './projects';
+export * from './ai-providers';
+export * from './api-keys';
+export * from './monitored-databases';
+export * from './relations';

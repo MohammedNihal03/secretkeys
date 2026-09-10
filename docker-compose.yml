@@ -1,0 +1,35 @@
+# OPTIONAL. Only for contributors who would rather not install PostgreSQL
+# locally -- see README "Option B". If you already have PostgreSQL running,
+# ignore this file entirely.
+#
+# Docker Engine and Compose v2 are Apache-2.0. Note that Docker *Desktop*
+# (the usual way to get them on Windows/macOS) is proprietary and requires a
+# paid subscription for larger organisations, which is why this is not the
+# default path.
+#
+#   docker compose up -d
+#
+# This container is the dashboard's own database. Never point it at, or use it
+# for, a database you are monitoring.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: ai-observability-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_observability
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d ai_observability']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
