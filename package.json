@@ -15,10 +15,13 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test",
-    "test:integration": "vitest run --config vitest.integration.config.mts"
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "bootstrap": "tsx scripts/bootstrap.ts",
+    "db:seed": "tsx scripts/seed-providers.ts",
+    "db:setup": "npm run db:migrate && npm run db:seed"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
@@ -42,6 +45,7 @@
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5",
     "vitest": "^5.0.0"
   },

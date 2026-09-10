@@ -3,8 +3,11 @@ import { relations } from 'drizzle-orm';
 import { aiProviders } from './ai-providers';
 import { apiKeys } from './api-keys';
 import { monitoredDatabases } from './monitored-databases';
+import { organizationMembers } from './organization-members';
 import { organizations } from './organizations';
 import { projects } from './projects';
+import { sessions } from './sessions';
+import { users } from './users';
 
 /**
  * Relation metadata for Drizzle's relational query API.
@@ -14,6 +17,7 @@ import { projects } from './projects';
  */
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
+  members: many(organizationMembers),
   projects: many(projects),
   apiKeys: many(apiKeys),
   monitoredDatabases: many(monitoredDatabases),
@@ -55,5 +59,28 @@ export const monitoredDatabasesRelations = relations(monitoredDatabases, ({ one 
   project: one(projects, {
     fields: [monitoredDatabases.projectId],
     references: [projects.id],
+  }),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  memberships: many(organizationMembers),
+  sessions: many(sessions),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, {
+    fields: [sessions.userId],
+    references: [users.id],
+  }),
+}));
+
+export const organizationMembersRelations = relations(organizationMembers, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [organizationMembers.organizationId],
+    references: [organizations.id],
+  }),
+  user: one(users, {
+    fields: [organizationMembers.userId],
+    references: [users.id],
   }),
 }));

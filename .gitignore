@@ -42,3 +42,6 @@ next-env.d.ts
 
 # keep the env template tracked
 !.env.example
+/.agents
+/.claude
+skills-lock.json

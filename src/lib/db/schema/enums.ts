@@ -17,14 +17,25 @@ import { pgEnum } from 'drizzle-orm/pg-core';
 export const environmentEnum = pgEnum('environment', ['production', 'staging', 'development']);
 
 /**
- * AI providers with an implemented adapter.
+ * Providers with an implemented adapter.
  *
- * Extended in Phase 3 as adapters are added; the MVP targets these three.
+ * Covers both LLM inference and speech services -- what they have in common is
+ * that they are metered third-party APIs behind a credential. Which metrics
+ * each one actually exposes differs enormously and is declared per adapter in
+ * `src/lib/providers`, never assumed here.
+ *
+ * Adding a value requires `ALTER TYPE ... ADD VALUE`, which drizzle-kit
+ * generates. A new value cannot be *used* in the same transaction that adds it,
+ * which is why the catalogue seed lives in a separate migration file.
  */
 export const aiProviderTypeEnum = pgEnum('ai_provider_type', [
   'openai',
   'google_gemini',
   'anthropic',
+  'groq',
+  'qwen',
+  'elevenlabs',
+  'deepgram',
 ]);
 
 /**
@@ -47,3 +58,12 @@ export const apiKeyStatusEnum = pgEnum('api_key_status', ['active', 'disabled', 
 
 /** Engine of a monitored database. The MVP implements a PostgreSQL collector only. */
 export const databaseTypeEnum = pgEnum('database_type', ['postgresql']);
+
+/**
+ * A member's role within one organization.
+ *
+ * Roles are per-membership rather than per-user: the same person may
+ * administer one organization and only read another. See `permissions.ts` for
+ * what each role may actually do.
+ */
+export const orgRoleEnum = pgEnum('org_role', ['org_admin', 'developer']);

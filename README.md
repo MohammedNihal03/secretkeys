@@ -12,8 +12,9 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-1 of 16 are complete — a runnable
-> foundation and the core data model. Metric collection does not exist yet. See
+> **Status: early development.** Phases 0-2 of 16 are complete — a runnable
+> foundation, the core data model, and authentication with organization-scoped
+> access control. Metric collection does not exist yet. See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
 
@@ -99,7 +100,17 @@ npm run db:migrate
 
 This creates the schema and seeds the AI provider catalogue.
 
-### 4. Run
+### 4. Create the first administrator
+
+```bash
+ORG_NAME="Acme" ADMIN_EMAIL="you@acme.com" ADMIN_NAME="Your Name" npm run bootstrap
+```
+
+Omit `ADMIN_PASSWORD` and a strong one is generated and printed once. This is a
+CLI step rather than a web page on purpose: an unauthenticated setup endpoint is
+a permanent liability if it stays reachable after setup.
+
+### 5. Run
 
 ```bash
 npm run dev
@@ -143,6 +154,7 @@ uptime check will not page you over a slow query.
 | `npm run db:generate` | Generate SQL migrations from the Drizzle schema |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Browse the dashboard database |
+| `npm run bootstrap` | Create the first organization and administrator |
 
 ## Architecture
 
@@ -173,8 +185,9 @@ uptime check will not page you over a slow query.
 | --- | --- |
 | App & API | Next.js 16 (App Router), React 19, TypeScript |
 | Database access | Drizzle ORM + `node-postgres` |
+| Auth | Server-side sessions, scrypt passwords (no native deps) |
 | Config | Zod-validated, server-only |
-| Styling | Tailwind CSS v4 |
+| Styling | Tailwind CSS v4, light/dark with no flash |
 | Tests | Vitest |
 
 ### Data model
@@ -204,6 +217,54 @@ Secrets are stored only as ciphertext (`encrypted_key`,
 `SafeApiKey` and `SafeMonitoredDatabase` types omit the secret-bearing fields so
 the compiler, not vigilance, keeps them out of responses.
 
+### Authentication and access control
+
+Three separate things, deliberately not conflated:
+
+- a **session** proves who you are
+- a **membership row** grants access to one organization's data
+- a **role** decides what you may do inside it
+
+Holding a valid session conveys no authority over any organization. Roles are
+per-membership, so the same person can administer one organization and only read
+another.
+
+| Capability | Organization admin | Developer |
+| --- | :---: | :---: |
+| View metrics, health, alerts | ✅ | ✅ |
+| Manage projects | ✅ | — |
+| Manage providers | ✅ | — |
+| Manage API keys | ✅ | — |
+| Manage databases | ✅ | — |
+
+Security choices worth knowing about:
+
+- **Sessions are server-side, not JWTs.** Only a SHA-256 hash of the token is
+  stored, so a dump of the `sessions` table cannot be replayed. Sign-out and
+  disabling a user take effect on the *next request*, not at token expiry.
+- **Passwords use scrypt** from `node:crypto` at the OWASP-recommended cost, so
+  there is no native build dependency to fail on install. Parameters are stored
+  inside each digest and can be raised without invalidating existing passwords.
+- **Sign-in does not leak which emails exist.** An unknown address, a wrong
+  password and a disabled account return the same message, and all three perform
+  one scrypt derivation so they take the same time.
+- **A non-member gets 404, not 403.** A 403 would confirm the organization
+  exists, letting any account probe for other tenants by id.
+- **`proxy.ts` is not the security boundary.** It only checks a cookie is
+  present, to avoid rendering a page that would just redirect. Real validation
+  happens in the data layer, in `src/lib/auth/guards.ts`.
+
+### Theming
+
+Light and dark, chosen by a cookie that is read on the server, so the correct
+theme is in the first HTML response and there is no flash of the wrong one. With
+no cookie set, `prefers-color-scheme` decides — the toggle does not override the
+system default until someone actually uses it.
+
+Brand marks for the monitored providers are inlined as SVG, with sources and
+licences recorded in [docs/ICON-CREDITS.md](docs/ICON-CREDITS.md). Nothing is
+loaded from a third-party CDN at runtime.
+
 ### Layout
 
 ```text
@@ -211,16 +272,27 @@ src/
   app/
     api/health/route.ts   health endpoint
     page.tsx              Phase 0 status page
+  proxy.ts                optimistic route protection (not the boundary)
+  components/             ambient background, brand marks, theme toggle
   lib/
     env.ts                validated, server-only configuration
     health.ts             health vocabulary and probes
+    auth/
+      password.ts         scrypt hashing, constant-time verification
+      session.ts          server-side sessions (hashed tokens)
+      access.ts           membership and role resolution
+      guards.ts           page guards -- the real security boundary
+      permissions.ts      the role/permission matrix
+    api/
+      authorize.ts        route-handler authorization (401/403/404)
     db/
       client.ts           pool for the dashboard's own database
       errors.ts           SQLSTATE inspection (unwraps Drizzle's wrapper)
       schema/             Drizzle schema and relations
 drizzle/                  generated SQL migrations + provider seed
-docs/                     product spec and build plan
-tests/                    unit tests
+scripts/bootstrap.ts      creates the first organization and administrator
+docs/                     product spec, build plan, icon credits
+tests/                    unit tests (*.test.ts) + integration (*.integration.test.ts)
 ```
 
 ## Contributing

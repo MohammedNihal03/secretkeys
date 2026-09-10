@@ -71,6 +71,18 @@ export const apiKeys = pgTable(
      */
     providerProjectId: text('provider_project_id'),
 
+    /**
+     * The provider's own identifier for this credential (e.g. OpenAI
+     * `key_abc123`, a Deepgram key id).
+     *
+     * Required to attribute org-wide usage back to a project. OpenAI and
+     * Anthropic only expose usage through an *organization admin* credential,
+     * returning rows grouped by their own key id -- so without this column
+     * there is no way to join their reported usage to one of our projects.
+     * Nullable: not every provider exposes such an id.
+     */
+    providerKeyId: text('provider_key_id'),
+
     /** Environment this credential serves. Authoritative for usage attribution. */
     environment: environmentEnum('environment').notNull(),
 

@@ -4,10 +4,14 @@
  * The tenancy hierarchy this encodes:
  *
  *   Organization
+ *    |-- Members             (user + role -- the sole source of authority)
  *    |-- Projects
  *    |     |-- API Keys        (project + provider + environment)
  *    |     '-- Monitored Databases
  *    '-- (AI Providers are a global catalogue, not tenant data)
+ *
+ *   User                     (global; may belong to several organizations)
+ *    '-- Sessions
  *
  * Every tenant-owned table carries `organization_id`, and child rows that
  * reference a project do so through a *composite* foreign key on
@@ -20,6 +24,9 @@
 export * from './columns';
 export * from './enums';
 export * from './organizations';
+export * from './users';
+export * from './sessions';
+export * from './organization-members';
 export * from './projects';
 export * from './ai-providers';
 export * from './api-keys';

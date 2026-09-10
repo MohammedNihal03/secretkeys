@@ -18,8 +18,16 @@ export const primaryId = () => uuid('id').primaryKey().defaultRandom();
  */
 export const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
+
+  /**
+   * Maintained by the `set_updated_at` database trigger, not by the
+   * application -- deliberately no `$onUpdate` here.
+   *
+   * Setting it from Node would read the application's clock while
+   * `created_at` reads the database's. The two can disagree, which allowed
+   * `updated_at` to be *earlier* than `created_at` and made ordering by it
+   * unreliable. One clock, owned by the database, is the fix. It also covers
+   * writers that bypass the ORM.
+   */
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 };

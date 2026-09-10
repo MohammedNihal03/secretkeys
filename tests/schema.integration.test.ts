@@ -266,7 +266,19 @@ describe('timestamps', () => {
     const [row] = await db
       .insert(projects)
       .values({ organizationId: orgA, name: `Touched ${RUN}` })
-      .returning({ id: projects.id, createdAt: projects.createdAt });
+      .returning({
+        id: projects.id,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+      });
+
+    /**
+     * A short wait so the update lands in a later millisecond than the insert.
+     * `now()` is the transaction timestamp and JS `Date` has millisecond
+     * resolution, so without it two statements can share a timestamp and the
+     * assertion below would be untestable either way.
+     */
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const [updated] = await db
       .update(projects)
@@ -275,7 +287,16 @@ describe('timestamps', () => {
       .returning({ createdAt: projects.createdAt, updatedAt: projects.updatedAt });
 
     expect(updated.createdAt.getTime()).toBe(row.createdAt.getTime());
-    expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(row.createdAt.getTime());
+
+    /**
+     * Both timestamps now come from the database clock via the
+     * `set_updated_at` trigger, so this ordering holds absolutely. It did not
+     * when `updated_at` was set from the application clock: the two could
+     * disagree, and `updated_at` was observed landing 1ms before
+     * `created_at`.
+     */
+    expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(updated.createdAt.getTime());
+    expect(updated.updatedAt.getTime()).toBeGreaterThan(row.updatedAt.getTime());
 
     await db.delete(projects).where(eq(projects.id, row.id));
   });
