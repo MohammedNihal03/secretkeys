@@ -46,6 +46,9 @@ jobs:
       # are valid against an empty database rather than only against a
       # developer's already-migrated one.
       - run: npm run db:migrate
+      # The catalogue is derived from the adapter registry, so seeding is part
+      # of a working database rather than optional sample data.
+      - run: npm run db:seed
       - run: npm run test:integration
 
       - run: npm run build

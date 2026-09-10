@@ -5,6 +5,7 @@
  *
  *   Organization
  *    |-- Members             (user + role -- the sole source of authority)
+ *    |-- Provider selection  (which providers this org tracks)
  *    |-- Projects
  *    |     |-- API Keys        (project + provider + environment)
  *    |     '-- Monitored Databases
@@ -29,6 +30,7 @@ export * from './sessions';
 export * from './organization-members';
 export * from './projects';
 export * from './ai-providers';
+export * from './organization-providers';
 export * from './api-keys';
 export * from './monitored-databases';
 export * from './relations';

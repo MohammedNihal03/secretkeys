@@ -12,9 +12,10 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-2 of 16 are complete — a runnable
-> foundation, the core data model, and authentication with organization-scoped
-> access control. Metric collection does not exist yet. See
+> **Status: early development.** Phases 0-3 of 16 are complete — foundation,
+> data model, authentication, and project + provider management with seven
+> provider adapters. Background metric collection does not exist yet (Phase 5).
+> See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
 
@@ -92,13 +93,15 @@ value:
 node -e "console.log(encodeURIComponent(process.argv[1]))" 'your@password'
 ```
 
-### 3. Apply migrations
+### 3. Apply migrations and seed
 
 ```bash
-npm run db:migrate
+npm run db:setup
 ```
 
-This creates the schema and seeds the AI provider catalogue.
+This applies migrations and reconciles the provider catalogue. The catalogue is
+derived from the adapter registry in code rather than a SQL seed, so the
+database can never list a provider that has no adapter.
 
 ### 4. Create the first administrator
 
@@ -153,6 +156,8 @@ uptime check will not page you over a slow query.
 | `npm run test:integration` | Tests against a real PostgreSQL instance |
 | `npm run db:generate` | Generate SQL migrations from the Drizzle schema |
 | `npm run db:migrate` | Apply pending migrations |
+| `npm run db:seed` | Reconcile the provider catalogue with the adapter registry |
+| `npm run db:setup` | `db:migrate` then `db:seed` |
 | `npm run db:studio` | Browse the dashboard database |
 | `npm run bootstrap` | Create the first organization and administrator |
 
@@ -216,6 +221,47 @@ Secrets are stored only as ciphertext (`encrypted_key`,
 `encrypted_credentials`) alongside a display-safe suffix (`key_last4`). The
 `SafeApiKey` and `SafeMonitoredDatabase` types omit the secret-bearing fields so
 the compiler, not vigilance, keeps them out of responses.
+
+### Providers, and what they actually expose
+
+Seven adapters ship, behind one `AIProviderAdapter` interface. **They differ
+enormously in what they let you read**, so a missing metric is recorded as
+unavailable with a reason — never as zero, which would read as "healthy and
+idle" when the truth is "we cannot see it".
+
+| Provider | Usage | Cost | Limits | Meters |
+| --- | --- | --- | --- | --- |
+| OpenAI | Admin key | Admin key | Headers only | requests, tokens |
+| Anthropic | Admin key | Admin key | Headers only | requests, tokens |
+| Google Gemini | — | — | — | requests, tokens |
+| Groq | — | — | Headers only | requests, tokens |
+| Qwen | — | — | — | requests, tokens |
+| ElevenLabs | — | — | **Endpoint** | characters |
+| Deepgram | **Per key** | — | — | requests, audio, tokens, characters |
+
+- **Admin key** — OpenAI and Anthropic expose usage and cost *only* on
+  organization endpoints requiring a separate admin credential
+  (`sk-admin-…` / `sk-ant-admin…`). They report the whole organization's usage
+  grouped by *their* key id, which is why `api_keys.provider_key_id` exists:
+  it's the join back to one of your projects. Per-project attribution therefore
+  works inside-out — one admin call per provider, then map each returned key id.
+- **Headers only** — rate limits appear solely on responses to real API calls,
+  so they cannot be polled on their own.
+- **Deepgram** has the most complete usage API of the seven: real windowed
+  requests, audio hours, tokens and TTS characters, groupable by API key with no
+  admin credential.
+- **ElevenLabs** is the only one exposing a true quota (characters used, limit
+  and reset time), which is what makes "this key is approaching its limit"
+  answerable directly.
+- **Cost is never derived from a local price list.** Only the two providers that
+  report cost themselves have a cost figure; guessing from tokens would produce
+  a confident number that silently drifts whenever a provider changes prices.
+
+Not yet added, in rough order of usefulness: **OpenRouter** (per-key spend plus
+limit and reset — the best usage API of anything surveyed), **DeepSeek**
+(balance endpoint), **Mistral**, and the enterprise cloud providers **Azure
+OpenAI** and **AWS Bedrock**, which need a richer credential shape than a single
+API key.
 
 ### Authentication and access control
 
@@ -285,12 +331,25 @@ src/
       permissions.ts      the role/permission matrix
     api/
       authorize.ts        route-handler authorization (401/403/404)
+    projects/
+      repository.ts       organization-scoped project queries
+      schema.ts           input validation
+      actions.ts          Server Actions, permission-checked
+    providers/
+      types.ts            AIProviderAdapter + explicit unavailable metrics
+      http.ts             timeouts, secret scrubbing, rate-limit headers
+      registry.ts         the adapters, and the catalogue derived from them
+      openai.ts anthropic.ts gemini.ts groq.ts qwen.ts
+      elevenlabs.ts deepgram.ts
     db/
       client.ts           pool for the dashboard's own database
       errors.ts           SQLSTATE inspection (unwraps Drizzle's wrapper)
       schema/             Drizzle schema and relations
 drizzle/                  generated SQL migrations + provider seed
-scripts/bootstrap.ts      creates the first organization and administrator
+scripts/
+  migrate.ts              applies migrations (reports real Postgres errors)
+  seed-providers.ts       reconciles the catalogue with the adapter registry
+  bootstrap.ts            creates the first organization and administrator
 docs/                     product spec, build plan, icon credits
 tests/                    unit tests (*.test.ts) + integration (*.integration.test.ts)
 ```

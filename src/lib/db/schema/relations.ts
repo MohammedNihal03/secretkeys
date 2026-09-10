@@ -4,6 +4,7 @@ import { aiProviders } from './ai-providers';
 import { apiKeys } from './api-keys';
 import { monitoredDatabases } from './monitored-databases';
 import { organizationMembers } from './organization-members';
+import { organizationProviders } from './organization-providers';
 import { organizations } from './organizations';
 import { projects } from './projects';
 import { sessions } from './sessions';
@@ -18,6 +19,7 @@ import { users } from './users';
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
   members: many(organizationMembers),
+  providerSelections: many(organizationProviders),
   projects: many(projects),
   apiKeys: many(apiKeys),
   monitoredDatabases: many(monitoredDatabases),
@@ -34,6 +36,18 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 
 export const aiProvidersRelations = relations(aiProviders, ({ many }) => ({
   apiKeys: many(apiKeys),
+  selections: many(organizationProviders),
+}));
+
+export const organizationProvidersRelations = relations(organizationProviders, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [organizationProviders.organizationId],
+    references: [organizations.id],
+  }),
+  provider: one(aiProviders, {
+    fields: [organizationProviders.providerId],
+    references: [aiProviders.id],
+  }),
 }));
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({

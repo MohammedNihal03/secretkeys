@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { Notice } from '@/components/notice';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import { listProjects } from '@/lib/projects/repository';
@@ -39,23 +40,28 @@ export default async function ProjectsPage({
       </header>
 
       {projects.length === 0 ? (
-        <div className="bezel rounded-shell p-1.5">
-          <div className="glass rounded-core flex flex-col items-start gap-3 px-5 py-8">
-            <p className="text-sm font-medium">No projects yet.</p>
-            <p className="max-w-md text-sm text-muted">
-              A project is what an API key is registered against, which is what makes per-project
-              cost attribution possible. Nothing can be monitored until one exists.
-            </p>
-            {canManage ? (
+        <Notice
+          tone="empty"
+          title="No projects yet"
+          action={
+            canManage ? (
               <Link
                 href={`${base}/new`}
-                className="mt-1 text-sm underline underline-offset-4 hover:text-foreground"
+                className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-95 active:scale-[0.98]"
               >
                 Create the first project
               </Link>
-            ) : null}
-          </div>
-        </div>
+            ) : undefined
+          }
+          elsewhere={
+            canManage
+              ? undefined
+              : 'Only an organization admin can create projects. Ask one to add the first.'
+          }
+        >
+          A project is what an API key is registered against, which is what makes per-project cost
+          attribution possible. Nothing can be monitored until one exists.
+        </Notice>
       ) : (
         <ul className="flex flex-col gap-2">
           {projects.map((project) => (
