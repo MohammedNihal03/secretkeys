@@ -84,3 +84,32 @@ export const credentialValidationOutcomeEnum = pgEnum('credential_validation_out
   'invalid',
   'unverified',
 ]);
+
+/**
+ * The four states every health signal in this system collapses to.
+ *
+ * `unknown` is deliberately distinct from `unhealthy`: nothing was learned --
+ * the check could not run, or the provider answered in a way that says nothing
+ * about whether it is working. Reporting that as unhealthy would raise false
+ * alarms; reporting it as healthy would hide real ones.
+ */
+export const healthStatusEnum = pgEnum('health_status', [
+  'healthy',
+  'degraded',
+  'unhealthy',
+  'unknown',
+]);
+
+/**
+ * How one collection attempt ended.
+ *
+ * `partial` matters: providers expose different subsets, so a run that read
+ * limits but could not read usage is neither a success nor a failure, and
+ * flattening it into either would misreport coverage.
+ */
+export const collectorOutcomeEnum = pgEnum('collector_outcome', [
+  'success',
+  'partial',
+  'failed',
+  'skipped',
+]);

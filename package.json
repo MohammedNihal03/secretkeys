@@ -22,7 +22,8 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "db:seed": "tsx scripts/seed-providers.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
-    "generate:key": "node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64'))\""
+    "generate:key": "node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64'))\"",
+    "collect": "tsx scripts/collect.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

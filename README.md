@@ -12,10 +12,10 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-4 of 16 are complete — foundation,
+> **Status: early development.** Phases 0-5 of 16 are complete — foundation,
 > data model, authentication, project + provider management with eleven
-> provider adapters, and encrypted API key registration. Background metric
-> collection does not exist yet (Phase 5).
+> provider adapters, encrypted API key registration, and a scheduled metrics
+> collector. Usage storage and the dashboards arrive in Phases 6 and 10.
 > See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
@@ -173,6 +173,7 @@ uptime check will not page you over a slow query.
 | `npm run db:studio` | Browse the dashboard database |
 | `npm run bootstrap` | Create the first organization and administrator |
 | `npm run generate:key` | Generate a `CREDENTIAL_ENCRYPTION_KEY` |
+| `npm run collect` | Run one metrics collection |
 
 ## Architecture
 
@@ -313,6 +314,54 @@ those two on and the rest off; a company that wants everything chooses
 These all use one `Notice` component (`src/components/notice.tsx`), so a new
 page gets the same honest empty states rather than a blank area or a zero.
 
+### Collecting metrics
+
+A collection reads every tracked credential once. For each one it checks the
+credential, records the provider's status and latency, reads whatever limits or
+quota that provider exposes, and asks for usage over the last two days.
+
+**The scheduler is external**, on purpose. Run it from cron, a systemd timer or
+Windows Task Scheduler:
+
+```bash
+npm run collect
+npm run collect -- --org=<uuid> --concurrency=2 --window-days=3
+```
+
+```cron
+*/15 * * * * cd /srv/observability && npm run collect >> /var/log/collect.log 2>&1
+```
+
+An interval inside the web process would collect twice when two instances run,
+and not at all while none is awake. For hosted schedulers that can only make an
+HTTP request, set `COLLECTOR_TRIGGER_SECRET` and call `POST /api/collect` with
+`Authorization: Bearer <secret>`; with no secret set that endpoint is disabled
+rather than left open.
+
+How it behaves, and why:
+
+- **One collection at a time**, enforced by a Postgres advisory lock. Overlapping
+  runs would call every provider twice and double whatever gets stored.
+- **One provider at a time**, with different providers collected in parallel. The
+  collector must not trigger the rate limits it is there to measure.
+- **Transient failures are retried** with jittered backoff. A rejected credential
+  is not: retrying a 401 just produces three of them, and some providers rate
+  limit repeated failed authentication.
+- **One provider failing changes nothing for the others**, and a defect in a
+  single adapter is contained to that credential rather than ending the run.
+- **A key its provider rejects is marked rejected**, so it stops showing as
+  validated. A provider being unreachable leaves it *unverified* instead — an
+  outage is not evidence against a key.
+- **A provider that exposes little is still a success.** Gemini reports no usage
+  at all; recording that as a failure would make a working key look broken.
+- Every attempt is recorded in `collector_runs`, which is where "last successful
+  collection" and "last error" are read from.
+
+**Usage rows are counted but not yet stored.** Phase 5 builds the collector;
+Phase 6 defines the usage table and supplies the sink that writes to it. Until
+then each run reports rows collected and rows stored as separate numbers, so the
+gap is visible instead of implied.
+
 ### API keys and how they are stored
 
 Registering a key follows a fixed flow: confirm the organization tracks the
@@ -413,6 +462,11 @@ src/
       permissions.ts      the role/permission matrix
     api/
       authorize.ts        route-handler authorization (401/403/404)
+    collector/
+      runner.ts           a collection run: lock, pooling, isolation
+      collect-target.ts   one credential: probe, limits, usage
+      interpret.ts        health and outcome rules (pure)
+      targets.ts          which credentials to collect from
     credentials/
       crypto.ts           AES-256-GCM, key rotation, fingerprints
       service.ts          register, check, revoke -- the only decryption path
@@ -437,6 +491,7 @@ scripts/
   migrate.ts              applies migrations (reports real Postgres errors)
   seed-providers.ts       reconciles the catalogue with the adapter registry
   bootstrap.ts            creates the first organization and administrator
+  collect.ts              runs one collection (point cron at this)
 docs/                     product spec, build plan, icon credits
 tests/                    unit tests (*.test.ts) + integration (*.integration.test.ts)
 ```

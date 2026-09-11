@@ -39,6 +39,17 @@ const envSchema = z.object({
 
   /** The previous key during a rotation. Accepted for decryption only. */
   CREDENTIAL_ENCRYPTION_KEY_PREVIOUS: optionalSecret(),
+
+  /**
+   * Shared secret that lets an external scheduler trigger a collection over
+   * HTTP (`POST /api/collect`).
+   *
+   * Optional: when it is unset the endpoint is disabled entirely rather than
+   * left open, and `npm run collect` remains the way to run a collection. An
+   * unauthenticated endpoint that makes this server call every registered
+   * provider would be a denial-of-service lever against those providers.
+   */
+  COLLECTOR_TRIGGER_SECRET: optionalSecret(),
 });
 
 /**

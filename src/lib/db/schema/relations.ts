@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm';
 
 import { aiProviders } from './ai-providers';
 import { apiKeys } from './api-keys';
+import { collectorRuns } from './collector-runs';
 import { monitoredDatabases } from './monitored-databases';
 import { organizationMembers } from './organization-members';
 import { organizationProviders } from './organization-providers';
@@ -46,6 +47,21 @@ export const organizationProvidersRelations = relations(organizationProviders, (
   }),
   provider: one(aiProviders, {
     fields: [organizationProviders.providerId],
+    references: [aiProviders.id],
+  }),
+}));
+
+export const collectorRunsRelations = relations(collectorRuns, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [collectorRuns.organizationId],
+    references: [organizations.id],
+  }),
+  apiKey: one(apiKeys, {
+    fields: [collectorRuns.apiKeyId],
+    references: [apiKeys.id],
+  }),
+  provider: one(aiProviders, {
+    fields: [collectorRuns.providerId],
     references: [aiProviders.id],
   }),
 }));

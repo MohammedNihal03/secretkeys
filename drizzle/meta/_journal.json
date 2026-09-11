@@ -57,6 +57,13 @@
       "when": 1789061328230,
       "tag": "0007_credential_validation_and_endpoint",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789111979488,
+      "tag": "0008_collector_runs",
+      "breakpoints": true
     }
   ]
 }

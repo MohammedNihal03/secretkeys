@@ -33,4 +33,5 @@ export * from './ai-providers';
 export * from './organization-providers';
 export * from './api-keys';
 export * from './monitored-databases';
+export * from './collector-runs';
 export * from './relations';
