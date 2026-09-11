@@ -1,7 +1,7 @@
-import { foreignKey, index, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
+import { foreignKey, index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
 import { primaryId, timestamps } from './columns';
-import { apiKeyStatusEnum, environmentEnum } from './enums';
+import { apiKeyStatusEnum, credentialValidationOutcomeEnum, environmentEnum } from './enums';
 import { aiProviders } from './ai-providers';
 import { organizations } from './organizations';
 import { projects } from './projects';
@@ -83,10 +83,33 @@ export const apiKeys = pgTable(
      */
     providerKeyId: text('provider_key_id'),
 
+    /**
+     * API host for providers whose endpoint is per resource rather than global
+     * -- Azure OpenAI, `https://{resource}.openai.azure.com`. Null for
+     * providers with a fixed host.
+     *
+     * SECURITY: the server makes authenticated requests to this URL, so it is
+     * only ever stored after passing the adapter's host allow-list. Accepting
+     * an arbitrary URL would turn the key form into a way to make this server
+     * send requests into its own network.
+     */
+    baseUrl: text('base_url'),
+
     /** Environment this credential serves. Authoritative for usage attribution. */
     environment: environmentEnum('environment').notNull(),
 
     status: apiKeyStatusEnum('status').notNull().default('active'),
+
+    /**
+     * The result of the last check against the provider.
+     *
+     * Shown in place of health until Phase 9 collects real health: it is the
+     * one thing genuinely known about a credential at registration time.
+     */
+    lastValidatedAt: timestamp('last_validated_at', { withTimezone: true }),
+    lastValidationOutcome: credentialValidationOutcomeEnum('last_validation_outcome'),
+    /** The provider's message from the last check, already scrubbed of secrets. */
+    lastValidationDetail: text('last_validation_detail'),
     ...timestamps,
   },
   (table) => [

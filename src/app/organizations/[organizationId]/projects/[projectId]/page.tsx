@@ -1,8 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { CredentialStatusBadge } from '@/components/credential-status';
+import { InlineNotice } from '@/components/notice';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
+import { maskedKey } from '@/lib/credentials/mask';
+import { listApiKeys } from '@/lib/credentials/repository';
+import { describeCredentialStatus } from '@/lib/credentials/status';
 import { getProject } from '@/lib/projects/repository';
 import { ENVIRONMENT_LABELS } from '@/lib/projects/schema';
 
@@ -17,6 +22,9 @@ export default async function ProjectDetailPage({
   // Scoped by organization, so another tenant's project id resolves to null.
   const project = await getProject(organizationId, projectId);
   if (!project) notFound();
+
+  const keys = await listApiKeys(organizationId, { projectId: project.id });
+  const canManageKeys = hasPermission(access.role, 'api_keys:manage');
 
   const canManage = hasPermission(access.role, 'projects:manage');
   const base = `/organizations/${organizationId}/projects`;
@@ -48,7 +56,7 @@ export default async function ProjectDetailPage({
       </header>
 
       <div className="bezel rounded-shell p-1.5">
-        <dl className="glass rounded-core divide-y" style={{ borderColor: 'var(--hairline)' }}>
+        <dl className="glass rounded-core divide-y divide-hairline">
           <Row label="Environment">{ENVIRONMENT_LABELS[project.environment]}</Row>
           <Row label="API keys">
             <span className="font-mono tabular-nums">{project.apiKeyCount}</span>
@@ -64,9 +72,52 @@ export default async function ProjectDetailPage({
         </dl>
       </div>
 
-      <p className="text-sm text-muted">
-        Registering API keys and databases against this project arrives in Phase 4.
-      </p>
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+          <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-faint">API keys</h2>
+          {canManageKeys ? (
+            <Link
+              href={`/organizations/${organizationId}/keys/new?projectId=${project.id}`}
+              className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
+            >
+              Register a key
+            </Link>
+          ) : null}
+        </div>
+
+        {keys.length === 0 ? (
+          <InlineNotice tone="empty">
+            No keys are registered against this project yet
+            {canManageKeys ? '.' : ' — an organization admin can add them.'}
+          </InlineNotice>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {keys.map((key) => (
+              <li key={key.id}>
+                <Link
+                  href={`/organizations/${organizationId}/keys/${key.id}`}
+                  className="bezel rounded-shell block p-1.5 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5"
+                >
+                  <div className="glass rounded-core flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate text-sm font-medium">{key.keyName}</span>
+                      <span className="font-mono text-xs text-muted">
+                        {key.provider.name} · {maskedKey(key.keyLast4)} ·{' '}
+                        {ENVIRONMENT_LABELS[key.environment]}
+                      </span>
+                    </span>
+                    <CredentialStatusBadge
+                      view={describeCredentialStatus(key.status, key.lastValidationOutcome)}
+                    />
+                  </div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <InlineNotice tone="info">Monitored databases are registered in Phase 7.</InlineNotice>
     </div>
   );
 }

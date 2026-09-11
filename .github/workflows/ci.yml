@@ -26,6 +26,9 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_observability_test
+      # CI-only test value (base64 of a fixed 32-byte string). Not a real secret,
+      # and never valid anywhere but this ephemeral test database.
+      CREDENTIAL_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
 
     steps:
       - uses: actions/checkout@v5

@@ -43,6 +43,20 @@
       "when": 1789059470790,
       "tag": "0005_high_killer_shrike",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789060243190,
+      "tag": "0006_add_openrouter_deepseek_mistral",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789061328230,
+      "tag": "0007_credential_validation_and_endpoint",
+      "breakpoints": true
     }
   ]
 }

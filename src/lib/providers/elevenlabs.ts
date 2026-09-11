@@ -81,6 +81,7 @@ function readLimits(json: unknown, rateLimited: boolean): NormalizedLimits {
     quotaUsed: typeof used === 'number' ? available(used) : unsupported('Not returned'),
     quotaLimit: typeof limit === 'number' ? available(limit) : unsupported('Not returned'),
     quotaUnit: available('characters'),
+    balance: unsupported('ElevenLabs meters a character quota, not a prepaid balance'),
     resetsAt:
       typeof resetUnix === 'number'
         ? available(new Date(resetUnix * 1000))

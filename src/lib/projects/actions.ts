@@ -20,6 +20,22 @@ export interface ProjectFormState {
   errors?: FieldErrors;
   /** Form-level error, for failures not tied to one field. */
   error?: string;
+  /** Raw input, echoed back so a failed submission does not wipe the form. */
+  values?: { name: string; description: string; environment: string };
+}
+
+/**
+ * React 19 resets a form once its action completes. Without echoing the input
+ * back, a single validation error -- a duplicate name, say -- clears
+ * everything the user typed.
+ */
+function echo(formData: FormData): ProjectFormState['values'] {
+  const get = (name: string) => {
+    const value = formData.get(name);
+    return typeof value === 'string' ? value : '';
+  };
+
+  return { name: get('name'), description: get('description'), environment: get('environment') };
 }
 
 export async function createProjectAction(
@@ -31,12 +47,15 @@ export async function createProjectAction(
   await requirePermission(organizationId, 'projects:manage');
 
   const parsed = parseProjectForm(formData);
-  if (!parsed.ok) return { errors: parsed.errors };
+  if (!parsed.ok) return { errors: parsed.errors, values: echo(formData) };
 
   const result = await createProject(organizationId, parsed.values);
 
   if (!result.ok) {
-    return { errors: { name: 'A project with this name already exists.' } };
+    return {
+      errors: { name: 'A project with this name already exists.' },
+      values: echo(formData),
+    };
   }
 
   // The list is a dynamic page, but revalidating keeps any cached segment honest.
@@ -53,14 +72,14 @@ export async function updateProjectAction(
   await requirePermission(organizationId, 'projects:manage');
 
   const parsed = parseProjectForm(formData);
-  if (!parsed.ok) return { errors: parsed.errors };
+  if (!parsed.ok) return { errors: parsed.errors, values: echo(formData) };
 
   const result = await updateProject(organizationId, projectId, parsed.values);
 
   if (!result.ok) {
     return result.error === 'duplicate_name'
-      ? { errors: { name: 'A project with this name already exists.' } }
-      : { error: 'This project no longer exists.' };
+      ? { errors: { name: 'A project with this name already exists.' }, values: echo(formData) }
+      : { error: 'This project no longer exists.', values: echo(formData) };
   }
 
   revalidatePath(`/organizations/${organizationId}/projects`);

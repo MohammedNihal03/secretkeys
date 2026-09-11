@@ -21,6 +21,19 @@ export type ProviderCategory = 'llm' | 'speech';
 export type Meter = 'requests' | 'tokens' | 'characters' | 'audio_seconds';
 
 /**
+ * Unit a quota is expressed in. Adds `usd` to the meters, because some
+ * providers (OpenRouter) cap a key by credit spent rather than by volume.
+ */
+export type QuotaUnit = Meter | 'usd';
+
+/** An amount of prepaid credit in one currency. */
+export interface CurrencyAmount {
+  readonly amount: number;
+  /** ISO 4217 code as reported by the provider, e.g. `USD`, `CNY`. */
+  readonly currency: string;
+}
+
+/**
  * Why a metric could not be produced.
  *
  * These are distinct because they demand different responses: `unsupported` is
@@ -113,10 +126,22 @@ export interface ProviderCredential {
    * scoping a request (e.g. OpenAI's `OpenAI-Project` header).
    */
   readonly providerProjectId?: string | null;
+  /**
+   * API host for providers whose endpoint is per resource (Azure OpenAI).
+   * Adapters re-validate it against their allow-list before every request.
+   */
+  readonly baseUrl?: string | null;
 }
 
 export type CredentialFailure =
-  'unauthorized' | 'forbidden' | 'rate_limited' | 'network_error' | 'timeout' | 'unexpected_status';
+  | 'unauthorized'
+  | 'forbidden'
+  | 'rate_limited'
+  | 'network_error'
+  | 'timeout'
+  | 'unexpected_status'
+  /** Required configuration is missing or invalid, so no request was made. */
+  | 'misconfigured';
 
 export interface CredentialValidation {
   readonly valid: boolean;
@@ -154,10 +179,18 @@ export interface NormalizedLimits {
   readonly quotaUsed: Metric<number>;
   readonly quotaLimit: Metric<number>;
   /** Unit the quota is expressed in. */
-  readonly quotaUnit: Metric<Meter>;
+  readonly quotaUnit: Metric<QuotaUnit>;
+  /**
+   * Prepaid credit remaining, one entry per currency. Distinct from a quota:
+   * a balance has no limit, it just runs out (DeepSeek). Reported as-is and
+   * never converted between currencies.
+   */
+  readonly balance: Metric<readonly CurrencyAmount[]>;
   readonly resetsAt: Metric<Date>;
   /** True when the provider is currently rejecting calls with 429. */
   readonly rateLimited: boolean;
+  /** Provider-specific fields preserved verbatim, as on `NormalizedUsage`. */
+  readonly providerRaw?: Record<string, unknown>;
 }
 
 /** Normalized consumption over one time window. */
@@ -305,6 +338,7 @@ export function noLimits(reason: UnavailableReason, detail: string): NormalizedL
     quotaUsed: missing(),
     quotaLimit: missing(),
     quotaUnit: missing(),
+    balance: missing(),
     resetsAt: missing(),
     rateLimited: false,
   };

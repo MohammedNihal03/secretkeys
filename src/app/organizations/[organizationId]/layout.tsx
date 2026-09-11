@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { StatusBadge } from '@/components/status-badge';
+import { InlineNotice } from '@/components/notice';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { signOut } from '@/lib/auth/actions';
 import { requireOrgAccess } from '@/lib/auth/guards';
@@ -34,6 +34,7 @@ export default async function OrganizationLayout({
   const links = [
     { href: base, label: 'Overview' },
     { href: `${base}/projects`, label: 'Projects' },
+    { href: `${base}/keys`, label: 'API keys' },
     { href: `${base}/providers`, label: 'Providers' },
   ];
 
@@ -86,10 +87,15 @@ export default async function OrganizationLayout({
 
       {!canManageAnything(access.role) ? (
         <footer className="mx-auto w-full max-w-4xl px-5 pb-8 sm:px-8">
-          <p className="flex items-center gap-2 text-xs text-faint">
-            <StatusBadge status="unknown" />
-            Read-only access. An organization admin can register providers and databases.
-          </p>
+          {/*
+            Deliberately not a StatusBadge: its "Unknown" label reads as a health
+            state, which on a monitoring page suggests something is wrong.
+          */}
+          <InlineNotice tone="info">
+            <strong className="font-medium text-foreground">Read-only access.</strong> You can see
+            everything this organization tracks; an organization admin can change providers,
+            projects and databases.
+          </InlineNotice>
         </footer>
       ) : null}
     </>

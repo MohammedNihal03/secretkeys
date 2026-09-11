@@ -62,7 +62,7 @@ export default async function Home() {
           className="bezel rounded-shell animate-rise p-2"
           style={{ animationDelay: '80ms' }}
         >
-          <div className="glass rounded-core divide-y" style={{ borderColor: 'var(--hairline)' }}>
+          <div className="glass rounded-core divide-y divide-hairline">
             <Row label="System">
               <StatusBadge status={health.status} />
             </Row>

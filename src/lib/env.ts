@@ -24,7 +24,35 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+
+  /**
+   * 32-byte key, base64-encoded, that encrypts stored provider credentials.
+   *
+   * Optional at boot so the dashboard can start and explain what is missing;
+   * required the moment a credential is stored or read. Its format is checked
+   * in `src/lib/credentials/crypto.ts`, which can report a precise problem.
+   *
+   * LOSING THIS KEY MAKES EVERY STORED CREDENTIAL UNRECOVERABLE. Back it up
+   * separately from the database.
+   */
+  CREDENTIAL_ENCRYPTION_KEY: optionalSecret(),
+
+  /** The previous key during a rotation. Accepted for decryption only. */
+  CREDENTIAL_ENCRYPTION_KEY_PREVIOUS: optionalSecret(),
 });
+
+/**
+ * An optional secret where an empty value means "not set".
+ *
+ * `KEY=""` in an env file is common, and treating it as a present-but-invalid
+ * value would stop the whole application from booting over a blank line.
+ */
+function optionalSecret() {
+  return z
+    .string()
+    .optional()
+    .transform((value) => (value && value.trim() ? value.trim() : undefined));
+}
 
 export type Env = z.infer<typeof envSchema>;
 

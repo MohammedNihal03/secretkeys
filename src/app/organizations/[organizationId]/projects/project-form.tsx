@@ -2,6 +2,8 @@
 
 import { useActionState } from 'react';
 
+import { useSubmitWithoutReset } from '@/lib/forms/use-submit-without-reset';
+
 import type { ProjectFormState } from '@/lib/projects/actions';
 import {
   ENVIRONMENTS,
@@ -35,16 +37,18 @@ export interface ProjectFormProps {
 
 export function ProjectForm({ action, submitLabel, defaults }: ProjectFormProps) {
   const [state, formAction, pending] = useActionState(action, INITIAL_STATE);
+  // Without this, a failed submit resets the environment select to its first option.
+  const submit = useSubmitWithoutReset(formAction);
 
   return (
-    <form action={formAction} className="flex max-w-lg flex-col gap-5">
+    <form action={formAction} onSubmit={submit} className="flex max-w-lg flex-col gap-5">
       <Field label="Name" htmlFor="name" error={state.errors?.name}>
         <input
           id="name"
           name="name"
           required
           maxLength={PROJECT_NAME_MAX}
-          defaultValue={defaults?.name}
+          defaultValue={state.values?.name ?? defaults?.name}
           placeholder="FYIND"
           aria-invalid={Boolean(state.errors?.name)}
           aria-describedby={state.errors?.name ? 'name-error' : undefined}
@@ -58,7 +62,7 @@ export function ProjectForm({ action, submitLabel, defaults }: ProjectFormProps)
           name="description"
           rows={3}
           maxLength={PROJECT_DESCRIPTION_MAX}
-          defaultValue={defaults?.description ?? ''}
+          defaultValue={state.values?.description ?? defaults?.description ?? ''}
           placeholder="What this project is for."
           aria-invalid={Boolean(state.errors?.description)}
           className={`${FIELD_CLASS} resize-y`}
@@ -69,7 +73,7 @@ export function ProjectForm({ action, submitLabel, defaults }: ProjectFormProps)
         <select
           id="environment"
           name="environment"
-          defaultValue={defaults?.environment ?? 'production'}
+          defaultValue={state.values?.environment || defaults?.environment || 'production'}
           className={FIELD_CLASS}
         >
           {ENVIRONMENTS.map((environment) => (

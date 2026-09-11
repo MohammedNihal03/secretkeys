@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseDurationMs, scrubSecrets } from '@/lib/providers/http';
 import { anthropicAdapter } from '@/lib/providers/anthropic';
 import { deepgramAdapter } from '@/lib/providers/deepgram';
+import { deepseekAdapter } from '@/lib/providers/deepseek';
+import { mistralAdapter } from '@/lib/providers/mistral';
+import { openrouterAdapter } from '@/lib/providers/openrouter';
 import { elevenlabsAdapter } from '@/lib/providers/elevenlabs';
 import { geminiAdapter } from '@/lib/providers/gemini';
 import { groqAdapter } from '@/lib/providers/groq';
@@ -30,6 +33,9 @@ const ALL_ADAPTERS: [string, AIProviderAdapter][] = [
   ['qwen', qwenAdapter],
   ['elevenlabs', elevenlabsAdapter],
   ['deepgram', deepgramAdapter],
+  ['openrouter', openrouterAdapter],
+  ['deepseek', deepseekAdapter],
+  ['mistral', mistralAdapter],
 ];
 
 /** Builds a stub Response. */
@@ -67,8 +73,8 @@ describe('registry', () => {
     }
   });
 
-  it('exposes all seven adapters', () => {
-    expect(listAdapters()).toHaveLength(7);
+  it('exposes all eleven adapters', () => {
+    expect(listAdapters()).toHaveLength(11);
   });
 
   it('derives catalogue entries with unique types', () => {

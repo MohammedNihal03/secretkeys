@@ -78,6 +78,7 @@ function readAnthropicLimits(headers: Headers, rateLimited: boolean): Normalized
     quotaUsed: unsupported('Anthropic does not expose a billing-period quota'),
     quotaLimit: unsupported('Anthropic does not expose a billing-period quota'),
     quotaUnit: unsupported('Anthropic does not expose a billing-period quota'),
+    balance: unsupported('Anthropic does not expose a prepaid balance via the API'),
     resetsAt: reset ? available(reset) : unsupported(NOT_RETURNED),
     rateLimited,
   };

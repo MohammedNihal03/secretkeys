@@ -49,6 +49,9 @@ const ELSEWHERE: Partial<Record<string, string>> = {
   elevenlabs:
     'Character usage is read here as a quota. A full history is available in the ElevenLabs usage dashboard.',
   deepgram: 'Remaining credit is available from the Deepgram console, or its /balances endpoint.',
+  mistral: 'Usage and spend are visible in the Mistral console.',
+  azure_openai:
+    'Usage and cost for the resource are in Azure Monitor metrics and Azure Cost Management in the Azure portal.',
 };
 
 export default async function ProvidersPage({

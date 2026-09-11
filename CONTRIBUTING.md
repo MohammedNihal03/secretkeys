@@ -43,7 +43,13 @@ npm run db:generate
 
 Unit tests live in `tests/` and run against no external services. Tests that
 need a real PostgreSQL instance should be named `*.integration.test.ts` so they
-can be excluded from the default run.
+can be excluded from the default run. They need `DATABASE_URL`,
+`CREDENTIAL_ENCRYPTION_KEY` (any output of `npm run generate:key`), and a
+migrated, seeded database:
+
+```bash
+npm run db:setup && npm run test:integration
+```
 
 Behaviour worth a test, in rough priority order:
 
@@ -51,6 +57,24 @@ Behaviour worth a test, in rough priority order:
 - anything that handles a credential
 - anything that normalizes a provider response, especially missing fields
 - organization isolation, once Phase 2 lands
+
+## Database changes
+
+- Generate migrations with `npm run db:generate` and apply them with
+  `npm run db:setup`. Commit the generated SQL.
+- **Every new table with an `updated_at` column needs the `set_updated_at`
+  trigger** (see `drizzle/0004_updated_at_triggers.sql`). It keeps both
+  timestamps on the database clock; setting `updated_at` from Node can put it
+  earlier than `created_at`.
+- **Adding a Postgres enum value:** use `ADD VALUE IF NOT EXISTS`, and never
+  insert rows that use the new value in a migration. Drizzle applies all pending
+  migrations in a single transaction, and Postgres forbids using an enum value
+  in the transaction that added it. Reference data belongs in a seed script.
+- The provider catalogue is derived from `src/lib/providers/registry.ts` by
+  `npm run db:seed`. Never hand-write catalogue rows.
+- Never select a whole `api_keys` row into anything that reaches a page. Read
+  through `src/lib/credentials/repository.ts`, which names its columns and never
+  includes the ciphertext.
 
 ## Commit messages
 

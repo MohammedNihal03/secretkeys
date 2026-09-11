@@ -12,9 +12,10 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-3 of 16 are complete — foundation,
-> data model, authentication, and project + provider management with seven
-> provider adapters. Background metric collection does not exist yet (Phase 5).
+> **Status: early development.** Phases 0-4 of 16 are complete — foundation,
+> data model, authentication, project + provider management with eleven
+> provider adapters, and encrypted API key registration. Background metric
+> collection does not exist yet (Phase 5).
 > See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
@@ -83,6 +84,17 @@ cp .env.example .env.local
 
 Then edit `.env.local` and set `DATABASE_URL`. The app validates configuration
 at startup and fails with the *names* of anything missing — never the values.
+
+Generate an encryption key for stored API keys and set it as
+`CREDENTIAL_ENCRYPTION_KEY`:
+
+```bash
+npm run generate:key
+```
+
+**Back this key up separately from the database.** Stored API keys are encrypted
+with it; if it is lost they cannot be recovered, only registered again. Use a
+different key for each environment.
 
 If your password contains characters that are reserved in a URI, percent-encode
 them (`@` becomes `%40`, `:` becomes `%3A`, `#` becomes `%23`). Otherwise the
@@ -160,6 +172,7 @@ uptime check will not page you over a slow query.
 | `npm run db:setup` | `db:migrate` then `db:seed` |
 | `npm run db:studio` | Browse the dashboard database |
 | `npm run bootstrap` | Create the first organization and administrator |
+| `npm run generate:key` | Generate a `CREDENTIAL_ENCRYPTION_KEY` |
 
 ## Architecture
 
@@ -224,7 +237,7 @@ the compiler, not vigilance, keeps them out of responses.
 
 ### Providers, and what they actually expose
 
-Seven adapters ship, behind one `AIProviderAdapter` interface. **They differ
+Eleven adapters ship, behind one `AIProviderAdapter` interface. **They differ
 enormously in what they let you read**, so a missing metric is recorded as
 unavailable with a reason — never as zero, which would read as "healthy and
 idle" when the truth is "we cannot see it".
@@ -238,6 +251,10 @@ idle" when the truth is "we cannot see it".
 | Qwen | — | — | — | requests, tokens |
 | ElevenLabs | — | — | **Endpoint** | characters |
 | Deepgram | **Per key** | — | — | requests, audio, tokens, characters |
+| OpenRouter | — | **Per key** (spend) | **Endpoint** (USD limit) | requests, tokens |
+| DeepSeek | — | — | **Endpoint** (balance) | requests, tokens |
+| Mistral | — | — | — | requests, tokens |
+| Azure OpenAI | — | — | — | requests, tokens |
 
 - **Admin key** — OpenAI and Anthropic expose usage and cost *only* on
   organization endpoints requiring a separate admin credential
@@ -253,15 +270,80 @@ idle" when the truth is "we cannot see it".
 - **ElevenLabs** is the only one exposing a true quota (characters used, limit
   and reset time), which is what makes "this key is approaching its limit"
   answerable directly.
+- **OpenRouter** reports each key's USD credit limit, how much remains, and
+  running daily/weekly/monthly spend — straight from the project key.
+- **DeepSeek** is prepaid: it reports a balance per currency and whether it still
+  covers API calls, so an exhausted account shows as unhealthy before calls fail.
 - **Cost is never derived from a local price list.** Only the two providers that
   report cost themselves have a cost figure; guessing from tokens would produce
   a confident number that silently drifts whenever a provider changes prices.
 
-Not yet added, in rough order of usefulness: **OpenRouter** (per-key spend plus
-limit and reset — the best usage API of anything surveyed), **DeepSeek**
-(balance endpoint), **Mistral**, and the enterprise cloud providers **Azure
-OpenAI** and **AWS Bedrock**, which need a richer credential shape than a single
-API key.
+**Azure OpenAI** keys are registered together with their resource endpoint, which
+is checked against an allow-list of Azure hosts before any request is made.
+
+Not yet added: **AWS Bedrock**, which needs SigV4 request signing and a region
+rather than a single API key.
+
+### Choosing which providers an organization tracks
+
+Not every organization uses every provider. Each organization picks its own set
+on the **Providers** page — a company using only OpenAI and ElevenLabs switches
+those two on and the rest off; a company that wants everything chooses
+**Track all**. The choice is per organization and never affects another tenant.
+
+- **Nothing chosen yet means everything is tracked.** When a new adapter ships
+  it appears for existing organizations instead of being silently withheld — in
+  a monitoring tool, a silent omission is worse than one extra service you can
+  switch off in one click.
+- **Track all / Clear all** record an explicit choice for every provider, so
+  "everything on, deliberately" stays distinguishable from "nobody has decided".
+- Only an **organization admin** can change the selection. Developers see it
+  read-only, and the server re-checks permission on every change.
+
+#### When there is nothing useful to show
+
+"No data" can mean three different things, and the UI says which:
+
+| Situation | What the dashboard shows |
+| --- | --- |
+| Nothing configured yet | What is missing, and the one next step |
+| The provider has no usage, cost or quota API | That only reachability can be monitored, and where to find the rest (e.g. Google AI Studio for Gemini) |
+| Something is wrong | A warning, kept visually distinct from the two above |
+
+These all use one `Notice` component (`src/components/notice.tsx`), so a new
+page gets the same honest empty states rather than a blank area or a zero.
+
+### API keys and how they are stored
+
+Registering a key follows a fixed flow: confirm the organization tracks the
+provider, check the key with the provider, encrypt it, then store it with its
+project and environment. The full secret never leaves the server again — pages
+only ever receive its last four characters.
+
+- **AES-256-GCM, bound to the organization.** The organization id is
+  authenticated alongside the ciphertext, so a ciphertext copied into another
+  tenant's row fails to decrypt instead of lending them a credential.
+- **Rotatable.** Each ciphertext records which key encrypted it. Set the old key
+  as `CREDENTIAL_ENCRYPTION_KEY_PREVIOUS` during a rotation and existing keys keep
+  working.
+- **Duplicates are caught without storing anything reversible.** A keyed,
+  per-organization HMAC fingerprint detects the same key registered twice —
+  which would otherwise credit its usage to two projects.
+- **A provider outage does not block registration.** A key the provider rejects
+  (401) is refused. One that cannot be checked — provider down, rate limiting, or
+  a restricted key denied the check (403) — is saved as *Not verified* and can be
+  checked again later.
+- **Provider messages are redacted** of the key before they are shown or stored,
+  even when a provider echoes the key back.
+- **Revocation is permanent.** A revoked key is kept so its usage history stays
+  attributed, but it can never be enabled again.
+- **Azure endpoints are allow-listed.** The server makes authenticated requests
+  to the endpoint you supply, so only Azure OpenAI hosts are accepted — otherwise
+  the key form could be used to make the server call into its own network.
+
+Until Phase 9 collects real health, a key's state is the result of its last
+check — *Validated*, *Not verified* or *Rejected* — rather than implying
+monitoring that does not exist yet.
 
 ### Authentication and access control
 
@@ -319,7 +401,7 @@ src/
     api/health/route.ts   health endpoint
     page.tsx              Phase 0 status page
   proxy.ts                optimistic route protection (not the boundary)
-  components/             ambient background, brand marks, theme toggle
+  components/             ambient background, brand marks, theme toggle, notices
   lib/
     env.ts                validated, server-only configuration
     health.ts             health vocabulary and probes
@@ -331,6 +413,10 @@ src/
       permissions.ts      the role/permission matrix
     api/
       authorize.ts        route-handler authorization (401/403/404)
+    credentials/
+      crypto.ts           AES-256-GCM, key rotation, fingerprints
+      service.ts          register, check, revoke -- the only decryption path
+      repository.ts       display-safe reads (never selects ciphertext)
     projects/
       repository.ts       organization-scoped project queries
       schema.ts           input validation
@@ -339,8 +425,9 @@ src/
       types.ts            AIProviderAdapter + explicit unavailable metrics
       http.ts             timeouts, secret scrubbing, rate-limit headers
       registry.ts         the adapters, and the catalogue derived from them
+      selection.ts        per-organization provider selection
       openai.ts anthropic.ts gemini.ts groq.ts qwen.ts
-      elevenlabs.ts deepgram.ts
+      elevenlabs.ts deepgram.ts openrouter.ts deepseek.ts mistral.ts azure-openai.ts
     db/
       client.ts           pool for the dashboard's own database
       errors.ts           SQLSTATE inspection (unwraps Drizzle's wrapper)

@@ -153,11 +153,46 @@ export async function providerFetch(request: ProviderRequest): Promise<ProviderC
     return {
       ok: false,
       failure: 'network_error',
-      detail: truncate(error instanceof Error ? error.message : 'network error'),
+      detail: describeNetworkError(error),
       latencyMs,
     };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * A person-readable reason for a request that never got a response.
+ *
+ * Node's fetch reports every transport failure as the unhelpful "fetch failed"
+ * and keeps the real reason on `error.cause.code`. That code is what tells an
+ * administrator whether to fix a typo in an endpoint or look at the server's
+ * network access.
+ */
+export function describeNetworkError(error: unknown): string {
+  const cause = (error as { cause?: { code?: unknown } } | null | undefined)?.cause;
+  const code = typeof cause?.code === 'string' ? cause.code : undefined;
+
+  switch (code) {
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return "The provider's host name could not be resolved. Check the endpoint, or this server's DNS and network access.";
+    case 'ECONNREFUSED':
+      return 'The provider refused the connection.';
+    case 'ECONNRESET':
+      return 'The connection was reset before the provider responded.';
+    case 'ETIMEDOUT':
+    case 'UND_ERR_CONNECT_TIMEOUT':
+      return 'Connecting to the provider timed out.';
+    case 'CERT_HAS_EXPIRED':
+    case 'DEPTH_ZERO_SELF_SIGNED_CERT':
+    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
+    case 'ERR_TLS_CERT_ALTNAME_INVALID':
+      return "The provider's TLS certificate could not be verified.";
+    default: {
+      const message = truncate(error instanceof Error ? error.message : 'network error');
+      return code ? `${message} (${code})` : message;
+    }
   }
 }
 

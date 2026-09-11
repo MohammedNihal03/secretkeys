@@ -36,6 +36,10 @@ export const aiProviderTypeEnum = pgEnum('ai_provider_type', [
   'qwen',
   'elevenlabs',
   'deepgram',
+  'openrouter',
+  'deepseek',
+  'mistral',
+  'azure_openai',
 ]);
 
 /**
@@ -67,3 +71,16 @@ export const databaseTypeEnum = pgEnum('database_type', ['postgresql']);
  * what each role may actually do.
  */
 export const orgRoleEnum = pgEnum('org_role', ['org_admin', 'developer']);
+
+/**
+ * Outcome of checking a credential against its provider.
+ *
+ * `unverified` is distinct from `invalid`: the provider could not be reached or
+ * was rate limiting, so nothing was learned about the key. Treating that as
+ * invalid would reject a good key during a provider outage.
+ */
+export const credentialValidationOutcomeEnum = pgEnum('credential_validation_outcome', [
+  'valid',
+  'invalid',
+  'unverified',
+]);

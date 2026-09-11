@@ -1,9 +1,13 @@
 import { anthropicAdapter } from './anthropic';
+import { azureOpenaiAdapter } from './azure-openai';
 import { deepgramAdapter } from './deepgram';
+import { deepseekAdapter } from './deepseek';
 import { elevenlabsAdapter } from './elevenlabs';
 import { geminiAdapter } from './gemini';
 import { groqAdapter } from './groq';
+import { mistralAdapter } from './mistral';
 import { openaiAdapter } from './openai';
+import { openrouterAdapter } from './openrouter';
 import { qwenAdapter } from './qwen';
 import type { AIProviderAdapter, AiProviderType } from './types';
 
@@ -30,6 +34,10 @@ const ADAPTERS = [
   qwenAdapter,
   elevenlabsAdapter,
   deepgramAdapter,
+  openrouterAdapter,
+  deepseekAdapter,
+  mistralAdapter,
+  azureOpenaiAdapter,
 ] as const;
 
 /**

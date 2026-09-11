@@ -21,7 +21,8 @@
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "db:seed": "tsx scripts/seed-providers.ts",
-    "db:setup": "npm run db:migrate && npm run db:seed"
+    "db:setup": "npm run db:migrate && npm run db:seed",
+    "generate:key": "node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64'))\""
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
