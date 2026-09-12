@@ -5,7 +5,7 @@ import { CredentialStatusBadge } from '@/components/credential-status';
 import { HealthPill } from '@/components/health-pill';
 import { Metric, formatBytes, formatCount, formatUsd } from '@/components/metric';
 import { InlineNotice, Notice } from '@/components/notice';
-import { TrendChart } from '@/components/trend-chart';
+import { BarChart, DonutChart } from '@/components/charts';
 import { UsageTotalsGrid } from '@/components/usage-totals';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
@@ -257,7 +257,7 @@ function ProjectUsage({
         {collected && totals.requests !== null ? (
           <div className="mt-6 border-t border-hairline pt-5">
             <h3 className="mb-3 text-xs font-medium text-muted">Requests per day</h3>
-            <TrendChart
+            <BarChart
               points={buildDailySeries(analytics.series, window.from, WINDOW_DAYS)}
               format={(value) => value.toLocaleString('en-US')}
               title="Project requests per day"
@@ -265,6 +265,34 @@ function ProjectUsage({
           </div>
         ) : null}
       </div>
+
+      {collected &&
+      byProvider.some((row) => row.estimatedCost !== null || row.requests !== null) ? (
+        <div className="border-t border-hairline p-5 sm:p-6">
+          <h3 className="mb-5 text-xs font-medium uppercase tracking-[0.14em] text-faint">
+            {byProvider.some((row) => row.estimatedCost !== null)
+              ? 'Cost by provider'
+              : 'Requests by provider'}
+          </h3>
+          <DonutChart
+            slices={byProvider
+              .map((row) => ({
+                label: row.name,
+                value:
+                  (byProvider.some((entry) => entry.estimatedCost !== null)
+                    ? row.estimatedCost
+                    : row.requests) ?? 0,
+              }))
+              .filter((slice) => slice.value > 0)}
+            title="Usage by provider"
+            format={
+              byProvider.some((row) => row.estimatedCost !== null)
+                ? (value) => `$${value.toFixed(value < 1 ? 4 : 2)}`
+                : (value) => value.toLocaleString('en-US')
+            }
+          />
+        </div>
+      ) : null}
 
       {collected ? (
         <div className="grid gap-px border-t border-hairline bg-hairline sm:grid-cols-2">

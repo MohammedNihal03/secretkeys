@@ -261,7 +261,8 @@ describe('run history', () => {
     const old = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     await recordCollectorRun(runRecord({ startedAt: old, finishedAt: old, error: 'ancient' }));
 
-    const removed = await pruneCollectorRuns(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    // Scoped: unscoped, this would delete every tenant's run history.
+    const removed = await pruneCollectorRuns(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), orgA);
 
     expect(removed).toBeGreaterThanOrEqual(1);
     const remaining = await recentCollectorRuns(orgA, 100);

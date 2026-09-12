@@ -28,6 +28,11 @@
 
   /* Hairlines -- never a flat 1px grey */
   --hairline: oklch(20% 0.02 260 / 0.09);
+
+  /* Highlight behind the selected row of an open select popup. */
+  --option-active: oklch(93% 0.012 265);
+  /* The chevron, inlined so it needs no request and follows the theme. */
+  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%23555f6d' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --hairline-strong: oklch(20% 0.02 260 / 0.16);
 
   /* Text */
@@ -78,6 +83,9 @@
     --hairline: oklch(100% 0 0 / 0.1);
     --hairline-strong: oklch(100% 0 0 / 0.18);
 
+    --option-active: oklch(30% 0.02 265);
+    --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%23a4adba' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
     --foreground: oklch(96% 0.004 265);
     --muted: oklch(72% 0.012 265);
     --faint: oklch(56% 0.012 265);
@@ -118,6 +126,9 @@
 
   --hairline: oklch(100% 0 0 / 0.1);
   --hairline-strong: oklch(100% 0 0 / 0.18);
+
+  --option-active: oklch(30% 0.02 265);
+  --select-chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%23a4adba' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   --foreground: oklch(96% 0.004 265);
   --muted: oklch(72% 0.012 265);
@@ -201,6 +212,54 @@ body {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/**
+ * Native selects, dressed to match the rest of the surface.
+ *
+ * A native `<select>` is kept rather than replaced with a custom listbox: it
+ * opens as the platform's own picker on a phone, it is keyboard and screen
+ * reader correct without any work, and it still submits when JavaScript has not
+ * loaded. The cost is that the open popup is drawn by the browser, and only a
+ * few of its properties can be reached from CSS.
+ *
+ * Those few are set here. Without them the popup used the browser's defaults --
+ * a bright blue selected row against near-black, in a list that looked nothing
+ * like the application around it.
+ */
+select {
+  /* Drop the platform chevron so it can be drawn to match the design. */
+  appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  background-size: 0.7rem;
+  /* Room for the chevron, so a long option never runs underneath it. */
+  padding-right: 2.25rem;
+}
+
+/**
+ * The popup list.
+ *
+ * Chrome on Windows and Linux honours these; Safari and Firefox largely ignore
+ * them and use the system menu, which is an acceptable place to land because
+ * `color-scheme` already makes that menu follow the theme.
+ */
+select option {
+  background-color: var(--surface-solid);
+  color: var(--foreground);
+  padding-block: 0.5rem;
+}
+
+select option:checked,
+select option:hover {
+  background-color: var(--option-active);
+  color: var(--foreground);
+}
+
+/* An option is not a place to lose the value in a long list. */
+select option:disabled {
+  color: var(--faint);
 }
 
 /**

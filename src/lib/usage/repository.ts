@@ -389,11 +389,17 @@ export async function latestUsageInterval(organizationId: string): Promise<Date 
  * the deletion is a range scan on an indexed column rather than a table scan
  * someone writes by hand later.
  */
-export async function pruneUsage(olderThan: Date): Promise<number> {
-  const deleted = await getDb()
-    .delete(aiUsage)
-    .where(lte(aiUsage.windowEnd, olderThan))
-    .returning({ id: aiUsage.id });
+export async function pruneUsage(olderThan: Date, organizationId?: string): Promise<number> {
+  /**
+   * Unscoped, this deletes across every tenant, which is what a retention job
+   * wants and what nothing else does. Pass an organization id unless you are
+   * that job.
+   */
+  const scope = organizationId
+    ? and(lte(aiUsage.windowEnd, olderThan), eq(aiUsage.organizationId, organizationId))
+    : lte(aiUsage.windowEnd, olderThan);
+
+  const deleted = await getDb().delete(aiUsage).where(scope).returning({ id: aiUsage.id });
 
   return deleted.length;
 }

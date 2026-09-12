@@ -12,11 +12,12 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-6 of 16 are complete — foundation,
+> **Status: early development.** Phases 0-12 of 16 are complete — foundation,
 > data model, authentication, project + provider management with eleven
-> provider adapters, encrypted API key registration, a scheduled metrics
-> collector, and the AI usage time series it writes to. The dashboards arrive
-> in Phase 10.
+> provider adapters, encrypted API key registration, the AI metrics collector
+> and its usage time series, the PostgreSQL collector and its metric series, a
+> central health evaluation engine, and the dashboards built on top of them.
+> Alerts, historical charts and hardening are Phases 13-16.
 > See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
@@ -174,7 +175,8 @@ uptime check will not page you over a slow query.
 | `npm run db:studio` | Browse the dashboard database |
 | `npm run bootstrap` | Create the first organization and administrator |
 | `npm run generate:key` | Generate a `CREDENTIAL_ENCRYPTION_KEY` |
-| `npm run collect` | Run one metrics collection |
+| `npm run collect` | Run one AI metrics collection |
+| `npm run collect:db` | Run one PostgreSQL metrics collection |
 
 ## Architecture
 
@@ -389,6 +391,73 @@ stored, so the two can disagree visibly. Aggregation, bucketing (in an explicit
 time zone, not the database server's) and retention live in
 `src/lib/usage/repository.ts`.
 
+### Monitoring a PostgreSQL database
+
+A registered database is reached by the collector over its own short-lived
+connection, never the dashboard's pool, and never from the browser. Every
+session is made safe before a single statistic is read:
+
+```sql
+SET default_transaction_read_only = on;   -- it cannot write, even by mistake
+SET statement_timeout = 5000;             -- it can never become the slow query
+SET lock_timeout = 2000;                  -- it never waits behind someone's lock
+SET idle_in_transaction_session_timeout = 10000;
+```
+
+The monitoring role needs two grants and nothing more. Not a superuser:
+
+```sql
+CREATE ROLE observability LOGIN PASSWORD 'a-strong-password';
+GRANT pg_monitor TO observability;
+GRANT CONNECT ON DATABASE your_database TO observability;
+```
+
+`pg_monitor` is what makes other users' connections and queries visible. Without
+it the collector still works, and says so: connection and query detail comes back
+as *unavailable with a reason*, never as zero, and the run summary tells the
+operator which grant would fix it.
+
+```bash
+npm run collect:db
+npm run collect:db -- --dry-run   # connect and read, store nothing
+```
+
+What it collects, and what it will not:
+
+- **Availability, response time, connections, query activity, locks, deadlocks,
+  transaction rate, cache hit ratio, database size and growth** — all read from
+  `pg_stat_activity`, `pg_stat_database`, `pg_locks` and the catalogue.
+- **CPU, memory and free disk are not collected**, because PostgreSQL does not
+  expose them. They are recorded as unavailable with that as the reason rather
+  than omitted, so nobody concludes that something is watching them.
+- **Rates need two samples.** Transactions per second, the interval cache hit
+  ratio and storage growth are all deltas, so the first collection reports them
+  as waiting for a second sample rather than guessing.
+- Failures are named, not echoed: `sorry, too many clients already` is reported
+  as "the server has no connection slots left: it is at max_connections".
+
+### Health, and the four states
+
+Thresholds live in exactly one file, `src/lib/evaluation/thresholds.ts`. Nothing
+else in the codebase compares a metric to a number: a threshold that lives in a
+component is a threshold that disagrees with the one beside it the first time
+either is adjusted.
+
+Each rule carries its direction, its warning and critical values, and the reason
+it exists — which is what an operator sees when they ask why something is amber.
+
+The fourth state is the one that does the work. **Unknown** is not "not looked at
+yet"; it is a metric that was asked for and could not be answered, and it keeps
+the reason. One distinction makes it usable rather than constant noise:
+
+- A **fixable** absence — a missing grant, a failed query, a rate still waiting
+  for its second sample — rolls up. The organization reads *Unknown* until it is
+  resolved.
+- A **structural** absence — host CPU, which PostgreSQL will never report — is
+  shown and explained, but does not roll up. Otherwise every healthy database
+  would sit permanently at amber, and the indicator would stop being read within
+  a day.
+
 ### API keys and how they are stored
 
 Registering a key follows a fixed flow: confirm the organization tracks the
@@ -499,6 +568,20 @@ src/
       normalize.ts        provider metrics -> a storable row (pure)
       attribution.ts      which credential a usage row belongs to (pure)
       repository.ts       upserts, aggregation, retention
+    databases/
+      connection.ts       read-only sessions, timeouts, named failures
+      queries.ts          every statement the collector runs, in one file
+      collect.ts          one database: privileges, metrics, deltas (pure logic)
+      runner.ts           a collection run: lock, pooling, isolation
+      storage.ts          the metric series, its sink, and reads for charts
+      service.ts          register, check, decrypt -- the only decryption path
+    evaluation/
+      thresholds.ts       every threshold in the system, and only here
+      engine.ts           readings -> healthy / warning / critical / unknown
+      database.ts ai.ts   the two things that get judged
+    dashboard/
+      overview.ts         the organization dashboard, assembled in one call
+      analytics.ts        provider, key and project views
     credentials/
       crypto.ts           AES-256-GCM, key rotation, fingerprints
       service.ts          register, check, revoke -- the only decryption path
@@ -523,7 +606,8 @@ scripts/
   migrate.ts              applies migrations (reports real Postgres errors)
   seed-providers.ts       reconciles the catalogue with the adapter registry
   bootstrap.ts            creates the first organization and administrator
-  collect.ts              runs one collection (point cron at this)
+  collect.ts              runs one AI collection (point cron at this)
+  collect-databases.ts    runs one PostgreSQL collection
 docs/                     product spec, build plan, icon credits
 tests/                    unit tests (*.test.ts) + integration (*.integration.test.ts)
 ```

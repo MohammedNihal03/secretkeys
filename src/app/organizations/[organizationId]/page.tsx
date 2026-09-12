@@ -10,7 +10,7 @@ import {
   formatUsd,
 } from '@/components/metric';
 import { Notice } from '@/components/notice';
-import { TrendChart, type TrendPoint } from '@/components/trend-chart';
+import { BarChart, DonutChart, LineChart, type ChartPoint } from '@/components/charts';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import { loadDashboardOverview, type DashboardOverview } from '@/lib/dashboard/overview';
@@ -80,6 +80,7 @@ export default async function OrganizationDashboard({
       ) : (
         <>
           <UsageSummary overview={overview} />
+          <Composition overview={overview} />
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             <AiPanel overview={overview} base={base} canManage={canManage} />
             <DatabasePanelList overview={overview} base={base} canManage={canManage} now={now} />
@@ -133,7 +134,7 @@ function StatusHeader({ overview, now }: { overview: DashboardOverview; now: Dat
 function UsageSummary({ overview }: { overview: DashboardOverview }) {
   const { totals, series } = overview.ai;
 
-  const points: TrendPoint[] = buildDailySeries(
+  const points: ChartPoint[] = buildDailySeries(
     overview.ai.series,
     overview.window.from,
     overview.window.days
@@ -203,21 +204,37 @@ function UsageSummary({ overview }: { overview: DashboardOverview }) {
         </div>
       </div>
 
-      {series.length > 0 ? (
-        <div className="mt-6 border-t border-hairline pt-5">
-          <div className="mb-3 flex items-baseline justify-between gap-3">
-            <h2 className="text-sm font-medium">Requests per day</h2>
-            <span className="text-[11px] text-faint">
-              {series.length} interval{series.length === 1 ? '' : 's'} stored
-            </span>
-          </div>
-          <TrendChart
-            points={points}
-            format={(value) => value.toLocaleString('en-US')}
-            title="AI requests per day"
-          />
+      <div className="mt-6 border-t border-hairline pt-5">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-medium">AI requests per day</h2>
+          <span className="text-[11px] text-faint">
+            {series.length > 0
+              ? `${series.length} interval${series.length === 1 ? '' : 's'} stored`
+              : `last ${overview.window.days} days`}
+          </span>
         </div>
-      ) : null}
+
+        {/*
+          The chart is drawn even with nothing in it. An empty strip of "not
+          collected" markers says the collector has not run; a section that
+          disappears says nothing at all, and looks like a missing feature.
+        */}
+        {/* Bars, not a line: each one is a day's accumulated count, and a line
+            would imply a value between them that was never measured. */}
+        <BarChart
+          points={points}
+          format={(value) => value.toLocaleString('en-US')}
+          title="AI requests per day"
+        />
+
+        {series.length === 0 ? (
+          <p className="mt-2 text-[11px] leading-snug text-faint">
+            {overview.setup.apiKeys === 0
+              ? 'No API key is registered, so no usage has been collected.'
+              : 'No usage has been stored for this window yet. Several providers expose no usage API at all; each provider page says which.'}
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -228,6 +245,91 @@ function sumConnections(overview: DashboardOverview): number | null {
     .filter((value): value is number => value !== null);
 
   return readings.length > 0 ? readings.reduce((total, value) => total + value, 0) : null;
+}
+
+/**
+ * How the organization's consumption divides between providers.
+ *
+ * Ranked by cost where any provider reports it, and by tokens or requests when
+ * none does. Providers that report nothing at all become the donut's `unknown`
+ * slice rather than being dropped: a composition chart that quietly omits what
+ * it cannot account for claims to show the whole.
+ */
+function Composition({ overview }: { overview: DashboardOverview }) {
+  const providers = overview.ai.providers;
+  if (providers.length === 0) return null;
+
+  const basis: 'cost' | 'tokens' | 'requests' | null = providers.some(
+    (provider) => provider.estimatedCost !== null
+  )
+    ? 'cost'
+    : providers.some((provider) => provider.totalTokens !== null)
+      ? 'tokens'
+      : providers.some((provider) => provider.requests !== null)
+        ? 'requests'
+        : null;
+
+  const readOf = (provider: (typeof providers)[number]) =>
+    basis === 'cost'
+      ? provider.estimatedCost
+      : basis === 'tokens'
+        ? provider.totalTokens
+        : basis === 'requests'
+          ? provider.requests
+          : null;
+
+  const slices = providers
+    .map((provider) => ({ label: provider.name, value: readOf(provider) ?? 0 }))
+    .filter((slice) => slice.value > 0);
+
+  const silent = providers.filter((provider) => readOf(provider) === null).length;
+
+  const format =
+    basis === 'cost'
+      ? (value: number) => `$${value.toFixed(value < 1 ? 4 : 2)}`
+      : (value: number) => value.toLocaleString('en-US');
+
+  const heading =
+    basis === 'cost'
+      ? 'Cost by provider'
+      : basis === 'tokens'
+        ? 'Tokens by provider'
+        : basis === 'requests'
+          ? 'Requests by provider'
+          : 'Usage by provider';
+
+  return (
+    <section className="glass rounded-(--radius-core) p-5 sm:p-6">
+      <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium">{heading}</h2>
+        <span className="text-[11px] text-faint">last {overview.window.days} days</span>
+      </div>
+
+      <DonutChart
+        slices={slices}
+        title={heading}
+        format={format}
+        centerLabel={
+          slices.length > 0 ? format(slices.reduce((total, slice) => total + slice.value, 0)) : '–'
+        }
+        centerNote={basis ?? 'no data'}
+      />
+
+      {/*
+        Providers that report nothing are named, not sized. The donut has no
+        slice for them because their share is genuinely unknown, and inventing
+        a magnitude to fill the ring would be the one thing this project does
+        not do.
+      */}
+      {silent > 0 ? (
+        <p className="mt-4 border-t border-hairline pt-4 text-[11px] leading-snug text-faint">
+          {silent} of {providers.length} tracked provider{providers.length === 1 ? '' : 's'} report
+          no {basis ?? 'usage'} at all, so their share of this total is unknown and no slice is
+          drawn for it. Each provider page says which figures it can expose.
+        </p>
+      ) : null}
+    </section>
+  );
 }
 
 function AiPanel({
@@ -387,6 +489,23 @@ function DatabasePanelList({
               </div>
 
               <p className="text-xs leading-snug text-muted">{item.assessment.headline}</p>
+
+              {/* A level sampled over time, so a line. */}
+              {item.history.length > 1 ? (
+                <LineChart
+                  points={item.history.map((point) => ({
+                    label: point.timestamp.toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }),
+                    value: point.value,
+                  }))}
+                  format={(value) => `${Math.round(value)} ms`}
+                  height={34}
+                  bare
+                  title={`${item.name} response time`}
+                />
+              ) : null}
 
               <div className="flex flex-wrap gap-x-6 gap-y-2">
                 <Metric

@@ -604,6 +604,64 @@ export async function metricHistories(
   return byMetric;
 }
 
+/**
+ * One metric's history for every database in an organization.
+ *
+ * The dashboard draws a small trend beside each database; doing that with one
+ * query per database would be a round trip per row on the busiest page in the
+ * application.
+ */
+export async function metricHistoryByDatabase(
+  organizationId: string,
+  metric: string,
+  since: Date,
+  perDatabase = 48
+): Promise<Map<string, MetricPoint[]>> {
+  const rows = await getDb()
+    .select({
+      databaseId: databaseMetrics.databaseId,
+      timestamp: databaseMetrics.timestamp,
+      value: databaseMetrics.value,
+      reason: databaseMetrics.reason,
+      detail: databaseMetrics.detail,
+      textValue: databaseMetrics.textValue,
+    })
+    .from(databaseMetrics)
+    .where(
+      and(
+        eq(databaseMetrics.organizationId, organizationId),
+        eq(databaseMetrics.metric, metric),
+        gte(databaseMetrics.timestamp, since)
+      )
+    )
+    .orderBy(asc(databaseMetrics.timestamp));
+
+  const byDatabase = new Map<string, MetricPoint[]>();
+
+  for (const row of rows) {
+    const points = byDatabase.get(row.databaseId) ?? [];
+    points.push({
+      timestamp: row.timestamp,
+      value: row.value,
+      reason: row.reason,
+      detail: row.detail,
+      textValue: row.textValue,
+    });
+    byDatabase.set(row.databaseId, points);
+  }
+
+  /**
+   * Only the most recent points are charted. A database collected every minute
+   * for a day is 1,440 bars in a strip a few hundred pixels wide, which is
+   * noise rather than a trend.
+   */
+  for (const [databaseId, points] of byDatabase) {
+    byDatabase.set(databaseId, points.slice(-perDatabase));
+  }
+
+  return byDatabase;
+}
+
 /** Recent collection attempts for one database, newest first. */
 export async function runsForDatabase(organizationId: string, databaseId: string, limit = 10) {
   return getDb()
@@ -637,11 +695,27 @@ export async function runsForDatabase(organizationId: string, databaseId: string
  * thirty rows every few minutes for a single database -- so retention is not
  * optional in the long run. It is still the operator's decision; nothing prunes
  * on its own.
+ *
+ * `organizationId` narrows it to one tenant. Without that parameter this is a
+ * deployment-wide delete, which is right for a retention job and wrong for
+ * everything else: an unscoped call from a test wiped every metric in the
+ * developer's database, including data the dashboard was being checked against.
+ * Scoping is not optional for any caller that is not the retention job itself.
  */
-export async function pruneDatabaseMetrics(olderThan: Date): Promise<number> {
+export async function pruneDatabaseMetrics(
+  olderThan: Date,
+  organizationId?: string
+): Promise<number> {
+  const scope = organizationId
+    ? and(
+        lte(databaseMetrics.timestamp, olderThan),
+        eq(databaseMetrics.organizationId, organizationId)
+      )
+    : lte(databaseMetrics.timestamp, olderThan);
+
   const deleted = await getDb()
     .delete(databaseMetrics)
-    .where(lte(databaseMetrics.timestamp, olderThan))
+    .where(scope)
     .returning({ id: databaseMetrics.id });
 
   return deleted.length;

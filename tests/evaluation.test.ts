@@ -302,6 +302,37 @@ describe('assessing a database', () => {
     expect(assessment.headline).toContain('No metrics');
   });
 
+  it('reads a stored disk absence under the name the rule uses', () => {
+    /**
+     * The collector stores free bytes; the rule is a percentage used. Before
+     * these were connected, the stored path reported "not collected yet" -- a
+     * fixable unknown -- and dragged every healthy database to Unknown, while
+     * the snapshot path correctly called it permanent.
+     */
+    const assessment = assessStoredMetrics('Production Primary', [
+      {
+        metric: 'resources.diskFreeBytes',
+        samples: 3,
+        readings: 0,
+        min: null,
+        max: null,
+        average: null,
+        latest: null,
+        latestAt: new Date('2026-09-12T10:00:00Z'),
+        latestReason: 'not_exposed_by_postgres',
+        latestDetail: 'PostgreSQL does not report free disk space.',
+        latestText: null,
+      },
+    ]);
+
+    const disk = assessment.findings.find(
+      (finding) => finding.metric === 'resources.diskUsedPercent'
+    );
+
+    expect(disk).toMatchObject({ level: 'unknown', structural: true });
+    expect(disk?.message).toContain('free disk');
+  });
+
   it('judges stored readings the same way as a fresh snapshot', () => {
     const assessment = assessStoredMetrics('Production Primary', [
       {

@@ -122,10 +122,22 @@ export async function recentCollectorRuns(organizationId: string, limit = 20) {
  * steadily and forever while the metrics it describes are summarised elsewhere.
  * Retention is the caller's decision; nothing here prunes on its own.
  */
-export async function pruneCollectorRuns(olderThan: Date): Promise<number> {
+export async function pruneCollectorRuns(
+  olderThan: Date,
+  organizationId?: string
+): Promise<number> {
+  /**
+   * Unscoped, this deletes across every tenant, which is what a retention job
+   * wants and what nothing else does. Pass an organization id unless you are
+   * that job.
+   */
+  const scope = organizationId
+    ? and(lt(collectorRuns.startedAt, olderThan), eq(collectorRuns.organizationId, organizationId))
+    : lt(collectorRuns.startedAt, olderThan);
+
   const deleted = await getDb()
     .delete(collectorRuns)
-    .where(lt(collectorRuns.startedAt, olderThan))
+    .where(scope)
     .returning({ id: collectorRuns.id });
 
   return deleted.length;

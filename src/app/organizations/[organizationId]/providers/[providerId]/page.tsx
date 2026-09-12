@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { HealthDot, HealthPill } from '@/components/health-pill';
 import { Metric, formatAgo, formatCount, formatMs, formatUsd } from '@/components/metric';
 import { Notice } from '@/components/notice';
-import { TrendChart, type TrendPoint } from '@/components/trend-chart';
+import { BarChart, DonutChart, type ChartPoint } from '@/components/charts';
 import { UsageTotalsGrid } from '@/components/usage-totals';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { loadProviderAnalytics } from '@/lib/dashboard/analytics';
@@ -54,7 +54,7 @@ export default async function ProviderAnalyticsPage({
   const adapter = getAdapter(provider.type as Parameters<typeof getAdapter>[0]);
   const base = `/organizations/${organizationId}`;
 
-  const points: TrendPoint[] = buildDailySeries(series, window.from, WINDOW_DAYS);
+  const points: ChartPoint[] = buildDailySeries(series, window.from, WINDOW_DAYS);
 
   return (
     <div className="animate-rise flex flex-col gap-6">
@@ -100,7 +100,7 @@ export default async function ProviderAnalyticsPage({
         {points.length > 0 && totals.requests !== null ? (
           <div className="mt-6 border-t border-hairline pt-5">
             <h3 className="mb-3 text-xs font-medium text-muted">Requests per day</h3>
-            <TrendChart
+            <BarChart
               points={points}
               format={(value) => value.toLocaleString('en-US')}
               title={`${provider.name} requests per day`}
@@ -108,6 +108,31 @@ export default async function ProviderAnalyticsPage({
           </div>
         ) : null}
       </section>
+
+      {keys.some((key) => key.requests !== null || key.estimatedCost !== null) ? (
+        <section className="glass rounded-(--radius-core) p-5 sm:p-6">
+          <h2 className="mb-5 text-sm font-medium">
+            {keys.some((key) => key.estimatedCost !== null) ? 'Cost by key' : 'Requests by key'}
+          </h2>
+          <DonutChart
+            slices={keys
+              .map((key) => ({
+                label: key.name,
+                value:
+                  (keys.some((entry) => entry.estimatedCost !== null)
+                    ? key.estimatedCost
+                    : key.requests) ?? 0,
+              }))
+              .filter((slice) => slice.value > 0)}
+            title="Usage by key"
+            format={
+              keys.some((key) => key.estimatedCost !== null)
+                ? (value) => `$${value.toFixed(value < 1 ? 4 : 2)}`
+                : (value) => value.toLocaleString('en-US')
+            }
+          />
+        </section>
+      ) : null}
 
       <section className="glass rounded-(--radius-core) p-5 sm:p-6">
         <h2 className="mb-4 text-sm font-medium">What {provider.name} exposes</h2>

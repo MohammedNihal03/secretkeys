@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { HealthDot, HealthPill } from '@/components/health-pill';
 import { Metric, formatAgo, formatBytes } from '@/components/metric';
 import { InlineNotice, Notice } from '@/components/notice';
-import { TrendChart, type TrendPoint } from '@/components/trend-chart';
+import { DonutChart, LineChart, type ChartPoint } from '@/components/charts';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import { getMonitoredDatabase } from '@/lib/databases/repository';
@@ -250,6 +250,7 @@ export default async function DatabaseDetailPage({
               points={toPoints(histories.get('postgres.transactionsPerSecond'))}
               format={(value) => value.toFixed(1)}
             />
+            <ConnectionStates metrics={metrics} title="Connections by state" />
           </div>
         </section>
       ) : null}
@@ -313,7 +314,7 @@ function formatUptime(seconds: number): string {
   return `${Math.round(seconds / 60)} minutes`;
 }
 
-function toPoints(points: { timestamp: Date; value: number | null }[] | undefined): TrendPoint[] {
+function toPoints(points: { timestamp: Date; value: number | null }[] | undefined): ChartPoint[] {
   return (points ?? []).map((point) => ({
     label: point.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
     value: point.value,
@@ -326,7 +327,7 @@ function History({
   format,
 }: {
   title: string;
-  points: TrendPoint[];
+  points: ChartPoint[];
   format: (value: number) => string;
 }) {
   if (points.length === 0) {
@@ -352,7 +353,59 @@ function History({
   return (
     <div className="flex flex-col gap-2">
       <h3 className="text-xs font-medium text-muted">{title}</h3>
-      <TrendChart points={points} format={format} height={56} title={title} />
+      {/* Levels sampled over time, so a line: the value existed between the
+          samples too, which is what a line claims and bars do not. */}
+      <LineChart points={points} format={format} height={72} title={title} />
+    </div>
+  );
+}
+
+/**
+ * How the connections divide right now.
+ *
+ * The unknown slice here is real, not estimated: the total is `current`, the
+ * states are counted separately, and whatever the states do not account for is
+ * exactly the remainder. That is the only circumstance in which a donut may
+ * draw an unknown portion.
+ */
+function ConnectionStates({ metrics, title }: { metrics: MetricSummary[]; title: string }) {
+  const read = (path: string) => metrics.find((entry) => entry.metric === path)?.latest ?? null;
+
+  const current = read('connections.current');
+  if (current === null || current <= 0) return null;
+
+  const active = read('connections.active');
+  const idle = read('connections.idle');
+  const idleInTransaction = read('connections.idleInTransaction');
+
+  const slices = [
+    { label: 'Active', value: active ?? 0, color: 'var(--ok)' },
+    { label: 'Idle', value: idle ?? 0, color: 'var(--unknown)' },
+    { label: 'Idle in transaction', value: idleInTransaction ?? 0, color: 'var(--warn)' },
+  ].filter((slice) => slice.value > 0);
+
+  const accounted = slices.reduce((total, slice) => total + slice.value, 0);
+  const remainder = Math.max(0, current - accounted);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="text-xs font-medium text-muted">{title}</h3>
+      <DonutChart
+        slices={slices}
+        title={title}
+        format={(value) => String(Math.round(value))}
+        size={132}
+        unknown={
+          remainder > 0
+            ? {
+                value: remainder,
+                label: active === null ? 'State hidden from the monitoring role' : 'Other states',
+              }
+            : null
+        }
+        centerLabel={String(Math.round(current))}
+        centerNote="connections"
+      />
     </div>
   );
 }

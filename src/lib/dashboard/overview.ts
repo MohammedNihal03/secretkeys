@@ -1,6 +1,10 @@
 import { desc, eq, sql } from 'drizzle-orm';
 
-import { latestMetricsByDatabase } from '@/lib/databases/storage';
+import {
+  latestMetricsByDatabase,
+  metricHistoryByDatabase,
+  type MetricPoint,
+} from '@/lib/databases/storage';
 import { getDb } from '@/lib/db/client';
 import { aiProviders, apiKeys, collectorRuns, monitoredDatabases } from '@/lib/db/schema';
 import { assessProviders, type AiProviderState } from '@/lib/evaluation/ai';
@@ -49,6 +53,8 @@ export interface DatabasePanel {
   connectionUtilization: number | null;
   sizeBytes: number | null;
   collected: boolean;
+  /** Recent response times, for the trend beside the row. */
+  history: MetricPoint[];
 }
 
 export interface DashboardOverview {
@@ -214,7 +220,10 @@ export async function loadDashboardOverview(
     };
   });
 
-  const metricsByDatabase = await latestMetricsByDatabase(organizationId, from);
+  const [metricsByDatabase, historyByDatabase] = await Promise.all([
+    latestMetricsByDatabase(organizationId, from),
+    metricHistoryByDatabase(organizationId, 'health.responseTimeMs', from),
+  ]);
 
   const databasePanels: DatabasePanel[] = databases.map((row) => {
     const metrics = metricsByDatabase.get(row.id) ?? [];
@@ -237,6 +246,7 @@ export async function loadDashboardOverview(
       connectionUtilization: reading(metrics, 'connections.utilizationPercent'),
       sizeBytes: reading(metrics, 'resources.databaseSizeBytes'),
       collected,
+      history: historyByDatabase.get(row.id) ?? [],
     };
   });
 

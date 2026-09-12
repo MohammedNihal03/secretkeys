@@ -342,7 +342,9 @@ describe('storing what was collected', () => {
 
   it('prunes readings older than a cut-off', async () => {
     const future = new Date(Date.now() + 60 * 1000);
-    const deleted = await pruneDatabaseMetrics(future);
+    // Scoped: an unscoped prune here deletes every metric in the developer's
+    // database, not just this test's.
+    const deleted = await pruneDatabaseMetrics(future, orgId);
 
     expect(deleted).toBeGreaterThan(0);
 

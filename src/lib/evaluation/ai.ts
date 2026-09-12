@@ -146,8 +146,7 @@ export function assessProvider(state: AiProviderState): AiAssessment {
    * structural unknown. Letting those decide would report a working Gemini key
    * as `unknown` forever.
    */
-  const level =
-    state.providerStatus === 'degraded' ? 'warning' : rollUp(findings);
+  const level = state.providerStatus === 'degraded' ? 'warning' : rollUp(findings);
   const worst = findings.find((finding) => finding.level === level);
 
   return {

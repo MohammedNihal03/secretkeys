@@ -1,4 +1,4 @@
-import type { TrendPoint } from '@/components/trend-chart';
+import type { ChartPoint } from '@/components/charts';
 
 /**
  * Turning a stored series into chart points.
@@ -12,9 +12,9 @@ export function buildDailySeries(
   series: readonly { bucket: Date; requests: number | null }[],
   from: Date,
   days: number
-): TrendPoint[] {
+): ChartPoint[] {
   const byDay = new Map(series.map((point) => [point.bucket.toISOString().slice(0, 10), point]));
-  const points: TrendPoint[] = [];
+  const points: ChartPoint[] = [];
 
   for (let index = 0; index < days; index += 1) {
     const day = new Date(from.getTime() + index * 86_400_000);

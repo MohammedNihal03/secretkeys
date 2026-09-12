@@ -5,7 +5,7 @@ import { CredentialStatusBadge } from '@/components/credential-status';
 import { HealthPill } from '@/components/health-pill';
 import { Metric, formatAgo, formatMs } from '@/components/metric';
 import { InlineNotice, Notice } from '@/components/notice';
-import { TrendChart } from '@/components/trend-chart';
+import { BarChart } from '@/components/charts';
 import { UsageTotalsGrid } from '@/components/usage-totals';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
@@ -189,7 +189,7 @@ export default async function ApiKeyDetailPage({
         {analytics.totals.requests !== null ? (
           <div className="mt-6 border-t border-hairline pt-5">
             <h3 className="mb-3 text-xs font-medium text-muted">Requests per day</h3>
-            <TrendChart
+            <BarChart
               points={buildDailySeries(analytics.series, window.from, WINDOW_DAYS)}
               format={(value) => value.toLocaleString('en-US')}
               title={`${key.keyName} requests per day`}

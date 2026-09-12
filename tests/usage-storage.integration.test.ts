@@ -461,7 +461,8 @@ describe('aggregating usage', () => {
   });
 
   it('prunes only what ended before the cut-off', async () => {
-    const deleted = await pruneUsage(DAY_TWO);
+    // Scoped: unscoped, this would delete every tenant's usage.
+    const deleted = await pruneUsage(DAY_TWO, orgA);
 
     expect(deleted).toBe(1);
     const totals = await summarizeUsage({ organizationId: orgA, ...RANGE });

@@ -106,6 +106,21 @@ export function assessSnapshot(snapshot: DatabaseSnapshot): DatabaseAssessment {
   };
 }
 
+/**
+ * Stored metric paths that answer a rule under a different name.
+ *
+ * The disk rule is expressed as a percentage used, because that is what a
+ * threshold on disk means; the collector stores free bytes, because that is
+ * what it would read if it could. Both are the same question, and without this
+ * the stored path reported "Disk used has not been collected yet" -- a fixable
+ * unknown -- while the snapshot path correctly reported a permanent one. Two
+ * answers to the same question is the exact failure this module's two entry
+ * points exist to avoid.
+ */
+const ALIASES: Record<string, string> = {
+  'resources.diskFreeBytes': 'resources.diskUsedPercent',
+};
+
 /** Shapes one collector metric into a reading the engine understands. */
 function reading(
   metric: string,
@@ -150,12 +165,23 @@ export function assessStoredMetrics(
     };
   }
 
-  const readings = metrics.map((summary) => ({
-    metric: summary.metric,
-    value: summary.latest,
-    reason: summary.latestReason,
-    detail: summary.latestDetail,
-  }));
+  const readings = metrics.flatMap((summary) => {
+    const reading = {
+      metric: summary.metric,
+      value: summary.latest,
+      reason: summary.latestReason,
+      detail: summary.latestDetail,
+    };
+
+    const alias = ALIASES[summary.metric];
+
+    /**
+     * The alias only carries the *absence*. A free-byte count cannot be turned
+     * into a percentage used without knowing the disk size, which is the thing
+     * PostgreSQL does not report, so a value would have to be invented.
+     */
+    return alias && summary.latest === null ? [reading, { ...reading, metric: alias }] : [reading];
+  });
 
   const findings = evaluateAll(readings, DATABASE_THRESHOLDS);
   const level = rollUp(findings);
