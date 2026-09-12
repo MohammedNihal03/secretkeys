@@ -14,8 +14,8 @@ import type {
  *
  * The collector's job is to turn "a credential exists" into "here is what its
  * provider will tell us, and what it will not". Nothing here decides whether a
- * number is alarming -- that is Phase 9 -- and nothing here stores the usage
- * time series, which is Phase 6.
+ * number is alarming -- that is Phase 9 -- and nothing here knows how usage is
+ * stored: that is the `UsageSink` seam at the bottom of this file.
  */
 
 export type CollectorOutcome = 'success' | 'partial' | 'failed' | 'skipped';
@@ -46,7 +46,17 @@ export interface TargetCollection {
   startedAt: Date;
   finishedAt: Date;
   durationMs: number;
-  /** Total provider calls made, including retries. */
+  /**
+   * Collection steps taken, including retries: the probe, the limits read and
+   * the usage read.
+   *
+   * Deliberately not called a count of provider requests. Some adapters answer
+   * a step locally -- a provider with no usage API needs no call -- and which
+   * ones cannot be told from their declared capabilities, because the shared
+   * OpenAI-compatible factory still makes a request to detect a 429 even when
+   * it reports no limits. Counting steps is something this number can honestly
+   * claim; counting HTTP requests is not.
+   */
   attempts: number;
 
   health: ProviderHealth;
@@ -120,16 +130,40 @@ export interface CollectionSummary {
   problems: string[];
 }
 
+/** What the collection that produced a batch of usage rows observed. */
+export interface UsageWriteContext {
+  /** When the rows were collected. */
+  collectedAt: Date;
+  /** Round-trip latency of that collection's probe, when it was measured. */
+  latencyMs: number | null;
+}
+
+export interface UsageWriteResult {
+  /** Rows written or corrected. */
+  stored: number;
+  /** Rows deliberately not written -- unattributable, or carrying no metric. */
+  skipped: number;
+  /**
+   * One message per distinct reason a row was skipped, ready to show an
+   * operator. A silent skip would look identical to a provider reporting
+   * nothing.
+   */
+  notes: string[];
+}
+
 /**
  * Where normalized usage goes.
  *
- * Phase 5 ends here on purpose: the collector produces normalized rows, and
- * Phase 6 supplies the sink that stores them. Keeping the seam explicit means
- * the collector can be built and tested now without guessing at a schema the
- * build plan specifies later.
+ * The collector produces normalized rows; the sink decides what storing them
+ * means. Keeping the seam explicit is what let the collector be built and
+ * tested in Phase 5 against a schema that did not exist yet, and it is what
+ * lets `npm run collect --dry-run` exercise every provider without writing.
  */
 export interface UsageSink {
   readonly name: string;
-  /** Returns how many rows were stored. */
-  write(target: CollectionTarget, entries: readonly NormalizedUsage[]): Promise<number>;
+  write(
+    target: CollectionTarget,
+    entries: readonly NormalizedUsage[],
+    context: UsageWriteContext
+  ): Promise<UsageWriteResult>;
 }

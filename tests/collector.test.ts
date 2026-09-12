@@ -9,6 +9,7 @@ import {
 } from '@/lib/collector/interpret';
 import { backoffDelay, isTransient, withRetry } from '@/lib/collector/retry';
 import { runCollection } from '@/lib/collector/runner';
+import { discardingUsageSink } from '@/lib/collector/sink';
 import type { CollectionTarget, CollectorRunRecord, UsageSink } from '@/lib/collector/types';
 import { PROVIDER_DEGRADED_LATENCY_MS } from '@/lib/providers/probe';
 import {
@@ -415,7 +416,7 @@ describe('collectTarget', () => {
     expect(collection.entries).toEqual([]);
   });
 
-  it('does not count a local "no usage API" answer as a provider call', async () => {
+  it('counts one step per collection stage', async () => {
     const fake = fakeAdapter({
       caps: { usage: 'none' },
       usage: { supported: false, reason: 'unsupported', detail: 'no usage endpoint' },
@@ -428,8 +429,8 @@ describe('collectTarget', () => {
       retry,
     });
 
-    // Probe + limits only.
-    expect(collection.attempts).toBe(2);
+    // Probe, limits and usage: one step each, none needing a retry.
+    expect(collection.attempts).toBe(3);
     expect(collection.outcome).toBe('success');
   });
 
@@ -515,7 +516,8 @@ describe('runCollection', () => {
             checks.push({ apiKeyId: t.apiKeyId, outcome });
           },
           acquireLock,
-          ...(options.sink ? { sink: options.sink } : {}),
+          // Never the default sink: a unit test must not reach a database.
+          sink: options.sink ?? discardingUsageSink,
         }),
     };
   }
@@ -567,7 +569,10 @@ describe('runCollection', () => {
   });
 
   it('reports what a sink stored, separately from what was collected', async () => {
-    const sink: UsageSink = { name: 'test', write: vi.fn(async () => 7) };
+    const sink: UsageSink = {
+      name: 'test',
+      write: vi.fn(async () => ({ stored: 7, skipped: 0, notes: [] })),
+    };
     const h = harness({ sink });
 
     const summary = await h.run();
@@ -575,6 +580,20 @@ describe('runCollection', () => {
     expect(summary.usageEntries).toBe(1);
     expect(summary.usagePersisted).toBe(7);
     expect(h.records[0].usagePersistedCount).toBe(7);
+  });
+
+  it('surfaces a sink note so unstored usage is never silent', async () => {
+    const sink: UsageSink = {
+      name: 'test',
+      write: async () => ({ stored: 0, skipped: 1, notes: ['key "sk-other" is not registered'] }),
+    };
+    const h = harness({ sink });
+
+    const summary = await h.run();
+
+    expect(summary.usageEntries).toBe(1);
+    expect(summary.usagePersisted).toBe(0);
+    expect(summary.problems).toContain('key "sk-other" is not registered');
   });
 
   it('skips a credential that disappeared mid-run', async () => {
@@ -616,6 +635,7 @@ describe('runCollection', () => {
       recordRun: async () => {},
       saveCredentialCheck: async () => {},
       acquireLock: async () => ({ release: async () => {} }),
+      sink: discardingUsageSink,
     });
 
     expect(summary.failed).toBe(1);
@@ -647,6 +667,7 @@ describe('runCollection', () => {
       recordRun: async () => {},
       saveCredentialCheck: async () => {},
       acquireLock: async () => ({ release: async () => {} }),
+      sink: discardingUsageSink,
     });
 
     // Serialised per provider, so the collector does not trigger the very rate
@@ -667,6 +688,7 @@ describe('runCollection', () => {
       recordRun: async () => {},
       saveCredentialCheck: async () => {},
       acquireLock: async () => ({ release: async () => {} }),
+      sink: discardingUsageSink,
     });
 
     expect(summary.byProvider.OpenAI).toMatchObject({ targets: 2, success: 2 });

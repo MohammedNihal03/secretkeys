@@ -23,7 +23,8 @@
     "db:seed": "tsx scripts/seed-providers.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
     "generate:key": "node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64'))\"",
-    "collect": "tsx scripts/collect.ts"
+    "collect": "tsx scripts/collect.ts",
+    "collect:db": "tsx scripts/collect-databases.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

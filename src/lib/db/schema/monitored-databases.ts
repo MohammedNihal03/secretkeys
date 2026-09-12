@@ -5,12 +5,13 @@ import {
   integer,
   pgTable,
   text,
+  timestamp,
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
 import { primaryId, timestamps } from './columns';
-import { databaseTypeEnum, environmentEnum, resourceStatusEnum } from './enums';
+import { databaseTypeEnum, environmentEnum, healthStatusEnum, resourceStatusEnum } from './enums';
 import { organizations } from './organizations';
 import { projects } from './projects';
 
@@ -67,6 +68,19 @@ export const monitoredDatabases = pgTable(
 
     /** Whether to collect from this target. Not health. */
     status: resourceStatusEnum('status').notNull().default('active'),
+
+    /**
+     * The result of the last connection check, the same way `api_keys` records
+     * its last validation.
+     *
+     * A *snapshot* of the last attempt, not the metric history: the time series
+     * lives in its own table, and a target that has never been reached needs an
+     * answer before any history exists.
+     */
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    lastCheckStatus: healthStatusEnum('last_check_status'),
+    /** The server's message from the last check, already scrubbed of credentials. */
+    lastCheckDetail: text('last_check_detail'),
     ...timestamps,
   },
   (table) => [

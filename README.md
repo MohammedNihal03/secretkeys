@@ -12,10 +12,11 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-5 of 16 are complete — foundation,
+> **Status: early development.** Phases 0-6 of 16 are complete — foundation,
 > data model, authentication, project + provider management with eleven
-> provider adapters, encrypted API key registration, and a scheduled metrics
-> collector. Usage storage and the dashboards arrive in Phases 6 and 10.
+> provider adapters, encrypted API key registration, a scheduled metrics
+> collector, and the AI usage time series it writes to. The dashboards arrive
+> in Phase 10.
 > See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
@@ -326,6 +327,7 @@ Windows Task Scheduler:
 ```bash
 npm run collect
 npm run collect -- --org=<uuid> --concurrency=2 --window-days=3
+npm run collect -- --dry-run   # contact every provider, store nothing
 ```
 
 ```cron
@@ -357,10 +359,35 @@ How it behaves, and why:
 - Every attempt is recorded in `collector_runs`, which is where "last successful
   collection" and "last error" are read from.
 
-**Usage rows are counted but not yet stored.** Phase 5 builds the collector;
-Phase 6 defines the usage table and supplies the sink that writes to it. Until
-then each run reports rows collected and rows stored as separate numbers, so the
-gap is visible instead of implied.
+### Where usage is stored
+
+Normalized usage lands in `ai_usage`, one row per provider-reported interval per
+credential, carrying organization, project, provider and key — so
+`Organization → Project → Provider → API Key → Time → Usage` is answerable by a
+filtered aggregate rather than four joins.
+
+Three rules shape that table, each guarding against a way a usage series goes
+quietly wrong:
+
+- **Nothing is invented.** Every metric column is nullable, and null means the
+  provider did not report it — never zero. The reason is kept alongside the row,
+  so a chart can say "Groq exposes no usage" instead of drawing a flat line at
+  zero. An interval in which nothing at all was reported is not stored: a
+  collection that found nothing must not look like usage of nothing.
+- **A window is corrected, not duplicated.** Providers finalise usage late, so
+  every run re-reads an overlapping two-day window and writes upsert-style
+  against `(api_key_id, timestamp, window_end)`. Collecting twice cannot double a
+  total, and a provider revising a day downward can revise it down.
+- **Usage is never billed to the wrong project.** Organization-wide usage
+  endpoints return every key's consumption grouped by the provider's own key
+  identifier. A row matching a registered key goes to that key's project; a row
+  naming a key this dashboard does not know is reported in the run summary and
+  dropped, rather than parked on whichever credential happened to fetch it.
+
+Each run records both how many intervals a provider returned and how many were
+stored, so the two can disagree visibly. Aggregation, bucketing (in an explicit
+time zone, not the database server's) and retention live in
+`src/lib/usage/repository.ts`.
 
 ### API keys and how they are stored
 
@@ -467,6 +494,11 @@ src/
       collect-target.ts   one credential: probe, limits, usage
       interpret.ts        health and outcome rules (pure)
       targets.ts          which credentials to collect from
+    usage/
+      sink.ts             the collector's storage seam, filled
+      normalize.ts        provider metrics -> a storable row (pure)
+      attribution.ts      which credential a usage row belongs to (pure)
+      repository.ts       upserts, aggregation, retention
     credentials/
       crypto.ts           AES-256-GCM, key rotation, fingerprints
       service.ts          register, check, revoke -- the only decryption path

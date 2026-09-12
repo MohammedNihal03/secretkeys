@@ -60,7 +60,10 @@ export const collectorRuns = pgTable(
 
     rateLimited: boolean('rate_limited').notNull().default(false),
 
-    /** How many tries this attempt needed, so retry pressure is visible. */
+    /**
+     * Collection steps taken, including retries, so retry pressure is visible.
+     * Steps rather than HTTP requests -- see `TargetCollection.attempts`.
+     */
     attempts: integer('attempts').notNull().default(1),
 
     usageWindowStart: timestamp('usage_window_start', { withTimezone: true }),
@@ -70,9 +73,11 @@ export const collectorRuns = pgTable(
     usageEntryCount: integer('usage_entry_count').notNull().default(0),
 
     /**
-     * Rows actually stored. Zero until Phase 6 provides a sink, and recorded
-     * separately from `usageEntryCount` so "collected but not yet stored" is
-     * never mistaken for "the provider returned nothing".
+     * Intervals actually written to `ai_usage`, recorded separately from
+     * `usageEntryCount` so "collected but not stored" is never mistaken for
+     * "the provider returned nothing". The two differ legitimately: a provider
+     * splits an interval into rows that merge into one, and usage belonging to
+     * a key we have not registered is dropped rather than misattributed.
      */
     usagePersistedCount: integer('usage_persisted_count').notNull().default(0),
 

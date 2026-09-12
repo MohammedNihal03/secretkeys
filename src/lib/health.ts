@@ -19,6 +19,18 @@ export const HEALTH_THRESHOLDS = {
   dbLatencyDegradedMs: 500,
   /** A liveness probe that has not answered by now is treated as a failure. */
   dbProbeTimeoutMs: 5_000,
+
+  /** A monitored database slower than this to answer a trivial query is degraded. */
+  monitoredDbLatencyDegradedMs: 1_000,
+
+  /** An active statement running longer than this counts as slow. */
+  slowQuerySeconds: 5,
+
+  /**
+   * And longer than this as long-running: usually already a problem, not merely
+   * a slow query.
+   */
+  longRunningQuerySeconds: 60,
 } as const;
 
 export interface CheckResult {

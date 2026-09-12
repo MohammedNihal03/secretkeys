@@ -64,6 +64,27 @@
       "when": 1789111979488,
       "tag": "0008_collector_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789221160589,
+      "tag": "0009_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789224125573,
+      "tag": "0010_monitored_database_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789224381726,
+      "tag": "0011_database_metrics",
+      "breakpoints": true
     }
   ]
 }

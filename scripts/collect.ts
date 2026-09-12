@@ -1,6 +1,7 @@
 import { config as loadDotenv } from 'dotenv';
 
 import { runCollection } from '@/lib/collector/runner';
+import { discardingUsageSink } from '@/lib/collector/sink';
 import { closePool } from '@/lib/db/client';
 
 loadDotenv({ path: '.env.local', quiet: true });
@@ -16,6 +17,7 @@ loadDotenv({ path: '.env', quiet: true });
  *
  *   npm run collect
  *   npm run collect -- --org=<uuid> --concurrency=2 --window-days=3
+ *   npm run collect -- --dry-run      # contact every provider, store nothing
  *
  * Exits non-zero only when the run could not be carried out, so a cron job
  * alerts on a broken collector but not on one provider being down -- that is
@@ -35,10 +37,17 @@ function positiveInt(value: string | undefined): number | undefined {
 }
 
 async function main(): Promise<void> {
+  const dryRun = process.argv.includes('--dry-run');
+
+  if (dryRun) {
+    console.log('Dry run: providers will be contacted, but no usage will be stored.\n');
+  }
+
   const summary = await runCollection({
     organizationId: flag('org'),
     concurrency: positiveInt(flag('concurrency')),
     usageWindowDays: positiveInt(flag('window-days')),
+    ...(dryRun ? { sink: discardingUsageSink } : {}),
     logger: (message) => console.log(`  ${message}`),
   });
 

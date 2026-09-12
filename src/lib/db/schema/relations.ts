@@ -1,6 +1,8 @@
 import { relations } from 'drizzle-orm';
 
 import { aiProviders } from './ai-providers';
+import { aiUsage } from './ai-usage';
+import { databaseCollectorRuns, databaseMetrics } from './database-metrics';
 import { apiKeys } from './api-keys';
 import { collectorRuns } from './collector-runs';
 import { monitoredDatabases } from './monitored-databases';
@@ -24,6 +26,7 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
   projects: many(projects),
   apiKeys: many(apiKeys),
   monitoredDatabases: many(monitoredDatabases),
+  usage: many(aiUsage),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
@@ -33,6 +36,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   }),
   apiKeys: many(apiKeys),
   monitoredDatabases: many(monitoredDatabases),
+  usage: many(aiUsage),
 }));
 
 export const aiProvidersRelations = relations(aiProviders, ({ many }) => ({
@@ -51,6 +55,25 @@ export const organizationProvidersRelations = relations(organizationProviders, (
   }),
 }));
 
+export const aiUsageRelations = relations(aiUsage, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [aiUsage.organizationId],
+    references: [organizations.id],
+  }),
+  project: one(projects, {
+    fields: [aiUsage.projectId],
+    references: [projects.id],
+  }),
+  provider: one(aiProviders, {
+    fields: [aiUsage.providerId],
+    references: [aiProviders.id],
+  }),
+  apiKey: one(apiKeys, {
+    fields: [aiUsage.apiKeyId],
+    references: [apiKeys.id],
+  }),
+}));
+
 export const collectorRunsRelations = relations(collectorRuns, ({ one }) => ({
   organization: one(organizations, {
     fields: [collectorRuns.organizationId],
@@ -66,7 +89,7 @@ export const collectorRunsRelations = relations(collectorRuns, ({ one }) => ({
   }),
 }));
 
-export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
+export const apiKeysRelations = relations(apiKeys, ({ one, many }) => ({
   organization: one(organizations, {
     fields: [apiKeys.organizationId],
     references: [organizations.id],
@@ -79,9 +102,36 @@ export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
     fields: [apiKeys.providerId],
     references: [aiProviders.id],
   }),
+  usage: many(aiUsage),
 }));
 
-export const monitoredDatabasesRelations = relations(monitoredDatabases, ({ one }) => ({
+export const databaseMetricsRelations = relations(databaseMetrics, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [databaseMetrics.organizationId],
+    references: [organizations.id],
+  }),
+  project: one(projects, {
+    fields: [databaseMetrics.projectId],
+    references: [projects.id],
+  }),
+  database: one(monitoredDatabases, {
+    fields: [databaseMetrics.databaseId],
+    references: [monitoredDatabases.id],
+  }),
+}));
+
+export const databaseCollectorRunsRelations = relations(databaseCollectorRuns, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [databaseCollectorRuns.organizationId],
+    references: [organizations.id],
+  }),
+  database: one(monitoredDatabases, {
+    fields: [databaseCollectorRuns.databaseId],
+    references: [monitoredDatabases.id],
+  }),
+}));
+
+export const monitoredDatabasesRelations = relations(monitoredDatabases, ({ one, many }) => ({
   organization: one(organizations, {
     fields: [monitoredDatabases.organizationId],
     references: [organizations.id],
@@ -90,6 +140,8 @@ export const monitoredDatabasesRelations = relations(monitoredDatabases, ({ one 
     fields: [monitoredDatabases.projectId],
     references: [projects.id],
   }),
+  metrics: many(databaseMetrics),
+  runs: many(databaseCollectorRuns),
 }));
 
 export const usersRelations = relations(users, ({ many }) => ({

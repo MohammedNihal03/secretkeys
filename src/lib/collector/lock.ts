@@ -17,7 +17,11 @@ import { getPool } from '@/lib/db/client';
 /**
  * Arbitrary but fixed. Advisory lock keys share one namespace per database, so
  * this constant is what makes every deployment of this application agree on
- * which lock means "a collection is running".
+ * which lock means "an AI collection is running".
+ *
+ * The database collector holds its own key: the two talk to entirely different
+ * systems, and sharing one lock would mean a slow provider delayed every
+ * database check.
  */
 export const COLLECTOR_LOCK_KEY = 4_726_301;
 
@@ -26,13 +30,15 @@ export interface CollectorLock {
 }
 
 /** Returns the lock, or `null` when another collection already holds it. */
-export async function acquireCollectorLock(): Promise<CollectorLock | null> {
+export async function acquireCollectorLock(
+  key: number = COLLECTOR_LOCK_KEY
+): Promise<CollectorLock | null> {
   const client = await getPool().connect();
 
   try {
     const result = await client.query<{ locked: boolean }>(
       'select pg_try_advisory_lock($1) as locked',
-      [COLLECTOR_LOCK_KEY]
+      [key]
     );
 
     if (!result.rows[0]?.locked) {
@@ -43,7 +49,7 @@ export async function acquireCollectorLock(): Promise<CollectorLock | null> {
     return {
       async release() {
         try {
-          await client.query('select pg_advisory_unlock($1)', [COLLECTOR_LOCK_KEY]);
+          await client.query('select pg_advisory_unlock($1)', [key]);
         } finally {
           // Returned to the pool even if the unlock fails, so a failure here
           // cannot leak a connection on top of a stuck lock.

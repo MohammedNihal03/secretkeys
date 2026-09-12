@@ -93,8 +93,7 @@ export async function collectTarget(
       (result) => !result.supported && result.reason === 'provider_error',
       deps.retry
     );
-    // A provider with no usage API answers locally; that is not a request.
-    attempts += exposesUsage ? usageRun.attempts : 0;
+    attempts += usageRun.attempts;
     usage = usageRun.result;
   }
 

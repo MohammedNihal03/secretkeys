@@ -1,20 +1,24 @@
 import type { UsageSink } from './types';
 
 /**
- * The default sink: normalized usage is counted, then dropped.
+ * A sink that counts normalized usage and stores none of it.
  *
- * Phase 5 builds the collector; Phase 6 defines the usage table and supplies a
- * sink that stores these rows. Until then the collector still runs, still
- * reports what each provider returned, and records how many rows it produced --
- * so the count and the storage can be verified independently.
+ * Not a leftover: `npm run collect --dry-run` uses it to exercise every
+ * provider, adapter and credential end to end -- including how many intervals
+ * each one returns -- without touching the time series. That makes it safe to
+ * check a new credential, or a provider's behaviour after an API change,
+ * against a production database.
  *
- * It is deliberately not silent about being a placeholder: `name` appears in
- * the run summary, so a collection that stores nothing cannot be mistaken for
- * one that stored everything.
+ * It is deliberately not silent about storing nothing: `name` appears in the
+ * run summary, so a dry run cannot be mistaken for a real one.
  */
 export const discardingUsageSink: UsageSink = {
-  name: 'discard (usage storage arrives in Phase 6)',
-  async write() {
-    return 0;
+  name: 'discard (dry run)',
+  async write(_target, entries) {
+    return {
+      stored: 0,
+      skipped: entries.length,
+      notes: entries.length > 0 ? ['Dry run: usage was collected but not stored.'] : [],
+    };
   },
 };

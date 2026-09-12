@@ -2,11 +2,11 @@ import { loadCredentialForUse } from '@/lib/credentials/service';
 import { scrubSecrets } from '@/lib/providers/http';
 import { getAdapter } from '@/lib/providers/registry';
 import type { AiProviderType, ProviderCredential, UsageWindow } from '@/lib/providers/types';
+import { databaseUsageSink } from '@/lib/usage/sink';
 import { collectTarget } from './collect-target';
 import { acquireCollectorLock, type CollectorLock } from './lock';
 import { recordCollectorRun, updateCredentialCheck } from './runs-repository';
 import type { RetryOptions } from './retry';
-import { discardingUsageSink } from './sink';
 import { listCollectionTargets } from './targets';
 import type {
   CollectionSummary,
@@ -32,9 +32,9 @@ export const DEFAULT_CONCURRENCY = 4;
  * How far back usage is requested.
  *
  * More than one day because providers finalise usage late: yesterday's figures
- * can still change after midnight. Overlapping windows mean the Phase 6 sink
- * must upsert rather than append -- re-collecting the same window must correct
- * rows, not duplicate them.
+ * can still change after midnight. Overlapping windows are why the sink upserts
+ * rather than appends -- re-collecting a window corrects its rows instead of
+ * duplicating them.
  */
 export const DEFAULT_USAGE_WINDOW_DAYS = 2;
 
@@ -46,6 +46,7 @@ export interface RunCollectionOptions {
   organizationId?: string;
   concurrency?: number;
   usageWindowDays?: number;
+  /** Defaults to the `ai_usage` table; `discardingUsageSink` makes it a dry run. */
   sink?: UsageSink;
   retry?: RetryOptions;
   logger?: (message: string) => void;
@@ -107,7 +108,7 @@ export async function runCollection(
 ): Promise<CollectionSummary> {
   const now = options.now ?? (() => new Date());
   const logger = options.logger ?? (() => {});
-  const sink = options.sink ?? discardingUsageSink;
+  const sink = options.sink ?? databaseUsageSink;
   const listTargets = options.listTargets ?? listCollectionTargets;
   const loadCredential = options.loadCredential ?? defaultLoadCredential;
   const adapterFor = options.adapterFor ?? getAdapter;
@@ -253,13 +254,24 @@ export async function runCollection(
               now,
             });
 
-            const persisted = collection.entries.length
-              ? await sink.write(target, collection.entries)
-              : 0;
+            const written = collection.entries.length
+              ? await sink.write(target, collection.entries, {
+                  collectedAt: collection.finishedAt,
+                  latencyMs: collection.health.latencyMs,
+                })
+              : { stored: 0, skipped: 0, notes: [] };
 
             summary.usageEntries += collection.entries.length;
-            summary.usagePersisted += persisted;
+            summary.usagePersisted += written.stored;
             providerSummary.usageEntries += collection.entries.length;
+
+            /**
+             * A row the provider reported but the sink did not store is not a
+             * failed collection -- the provider answered -- but it is something
+             * an operator has to be told, or the total in the dashboard will
+             * quietly disagree with the one on the provider's own bill.
+             */
+            for (const problem of written.notes) note(problem);
 
             if (collection.outcome === 'success') {
               summary.success += 1;
@@ -288,7 +300,7 @@ export async function runCollection(
               usageWindowStart: window.start,
               usageWindowEnd: window.end,
               usageEntryCount: collection.entries.length,
-              usagePersistedCount: persisted,
+              usagePersistedCount: written.stored,
               unavailable:
                 Object.keys(collection.unavailable).length > 0 ? collection.unavailable : null,
               error: collection.error ?? null,
@@ -301,7 +313,8 @@ export async function runCollection(
             );
 
             logger(
-              `${label}: ${collection.outcome} (${collection.health.status}, ${collection.entries.length} usage rows)`
+              `${label}: ${collection.outcome} (${collection.health.status}, ` +
+                `${collection.entries.length} usage rows, ${written.stored} stored)`
             );
           } catch (error) {
             /**
