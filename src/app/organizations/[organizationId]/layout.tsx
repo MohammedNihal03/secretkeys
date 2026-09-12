@@ -35,12 +35,23 @@ export default async function OrganizationLayout({
     { href: base, label: 'Overview' },
     { href: `${base}/projects`, label: 'Projects' },
     { href: `${base}/keys`, label: 'API keys' },
+    { href: `${base}/databases`, label: 'Databases' },
     { href: `${base}/providers`, label: 'Providers' },
   ];
 
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
+      {/*
+        One container width for the whole shell.
+
+        The header and the navigation used to run edge to edge while the content
+        below was capped at `max-w-4xl`, which left a wide empty gutter down both
+        sides of every page on a desktop screen and made the header look detached
+        from what it labelled. A dashboard is a dense surface: it should use the
+        window it is given, with one shared gutter so every row starts on the
+        same vertical line.
+      */}
+      <header className="mx-auto flex w-full max-w-(--shell-width) flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-8">
         <div className="flex items-center gap-3">
           <Link
             href="/"
@@ -68,8 +79,8 @@ export default async function OrganizationLayout({
         </div>
       </header>
 
-      <nav className="border-y border-hairline px-5 sm:px-8">
-        <ul className="flex gap-1 overflow-x-auto">
+      <nav className="border-y border-hairline">
+        <ul className="mx-auto flex w-full max-w-(--shell-width) gap-1 overflow-x-auto px-5 sm:px-8">
           {links.map((link) => (
             <li key={link.href}>
               <Link
@@ -83,10 +94,12 @@ export default async function OrganizationLayout({
         </ul>
       </nav>
 
-      <div className="mx-auto w-full max-w-4xl flex-1 px-5 py-8 sm:px-8">{children}</div>
+      <div className="mx-auto w-full max-w-(--shell-width) flex-1 px-5 py-8 sm:px-8">
+        {children}
+      </div>
 
       {!canManageAnything(access.role) ? (
-        <footer className="mx-auto w-full max-w-4xl px-5 pb-8 sm:px-8">
+        <footer className="mx-auto w-full max-w-(--shell-width) px-5 pb-8 sm:px-8">
           {/*
             Deliberately not a StatusBadge: its "Unknown" label reads as a health
             state, which on a monitoring page suggests something is wrong.

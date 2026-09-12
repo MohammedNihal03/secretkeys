@@ -2,7 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { CredentialStatusBadge } from '@/components/credential-status';
+import { HealthPill } from '@/components/health-pill';
+import { Metric, formatAgo, formatMs } from '@/components/metric';
 import { InlineNotice, Notice } from '@/components/notice';
+import { TrendChart } from '@/components/trend-chart';
+import { UsageTotalsGrid } from '@/components/usage-totals';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
 import {
@@ -13,9 +17,14 @@ import {
 import { maskedKey } from '@/lib/credentials/mask';
 import { getApiKey } from '@/lib/credentials/repository';
 import { describeCredentialStatus } from '@/lib/credentials/status';
+import { loadKeyAnalytics } from '@/lib/dashboard/analytics';
+import { buildDailySeries } from '@/lib/dashboard/series';
 import { ENVIRONMENT_LABELS } from '@/lib/projects/schema';
 import { getAdapter } from '@/lib/providers/registry';
 import { KeyControls, KeyMetadataForm } from './key-controls';
+
+/** How far back the usage panel looks. */
+const WINDOW_DAYS = 7;
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +52,10 @@ export default async function ApiKeyDetailPage({
 
   const needsAttributionId =
     adapter.capabilities.usage === 'organization_admin' && !key.providerKeyId;
+
+  const now = new Date();
+  const window = { from: new Date(now.getTime() - WINDOW_DAYS * 86_400_000), to: now };
+  const analytics = await loadKeyAnalytics(organizationId, key.id, key.provider.name, window);
 
   return (
     <div className="animate-rise flex flex-col gap-6">
@@ -139,6 +152,53 @@ export default async function ApiKeyDetailPage({
       ) : null}
 
       <InlineNotice tone="info">{adapter.capabilities.notes}</InlineNotice>
+
+      {/*
+        Usage for this credential alone.
+
+        Shown even when every figure is missing, because "this key has no usage
+        recorded" is itself the answer for a provider that exposes none, and
+        hiding the panel would make the page look like it simply forgot.
+      */}
+      <section className="glass rounded-(--radius-core) p-5 sm:p-6">
+        <div className="mb-5 flex flex-wrap items-baseline justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-sm font-medium">Usage, last {WINDOW_DAYS} days</h2>
+            <HealthPill level={analytics.assessment.level} size="sm" />
+          </div>
+          <span className="text-[11px] text-faint">
+            {analytics.collection.lastCollectedAt
+              ? `Last collected ${formatAgo(analytics.collection.lastCollectedAt, now)}`
+              : 'Never collected'}
+          </span>
+        </div>
+
+        <UsageTotalsGrid
+          totals={analytics.totals}
+          subject={key.provider.name}
+          collected={analytics.collection.lastCollectedAt !== null}
+        >
+          <Metric
+            label="Latency"
+            value={formatMs(analytics.collection.latencyMs)}
+            reason="No collection has measured a round trip."
+            note="last probe"
+          />
+        </UsageTotalsGrid>
+
+        {analytics.totals.requests !== null ? (
+          <div className="mt-6 border-t border-hairline pt-5">
+            <h3 className="mb-3 text-xs font-medium text-muted">Requests per day</h3>
+            <TrendChart
+              points={buildDailySeries(analytics.series, window.from, WINDOW_DAYS)}
+              format={(value) => value.toLocaleString('en-US')}
+              title={`${key.keyName} requests per day`}
+            />
+          </div>
+        ) : null}
+
+        <p className="mt-5 text-xs leading-relaxed text-muted">{analytics.assessment.headline}</p>
+      </section>
 
       {canManage ? (
         <>

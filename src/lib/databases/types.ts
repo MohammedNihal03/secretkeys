@@ -24,6 +24,12 @@ export type DbUnavailableReason =
   | 'not_exposed_by_postgres'
   /** An extension would provide it, and it is not installed. */
   | 'extension_required'
+  /**
+   * Readable, but not worth what it costs to read on every collection. A
+   * monitoring tool that runs a multi-second query against a production server
+   * every few minutes has become part of the problem it is measuring.
+   */
+  | 'too_expensive'
   /** A rate or a growth figure, which needs two samples to exist at all. */
   | 'needs_previous_sample'
   /** The statistics counters were reset between samples, so a delta would lie. */
@@ -49,6 +55,10 @@ export function notExposed<T>(detail: string): DbMetric<T> {
 
 export function needsExtension<T>(detail: string): DbMetric<T> {
   return { available: false, reason: 'extension_required', detail };
+}
+
+export function tooExpensive<T>(detail: string): DbMetric<T> {
+  return { available: false, reason: 'too_expensive', detail };
 }
 
 export function needsPreviousSample<T>(detail: string): DbMetric<T> {
@@ -102,7 +112,13 @@ export interface DatabaseHealth {
 
 export interface ResourceMetrics {
   databaseSizeBytes: DbMetric<number>;
-  /** Every database on the server, which is what fills the disk. */
+  /**
+   * Every database on the server, which is what fills the disk.
+   *
+   * Off by default: summing `pg_database_size` walks every database's
+   * directory, which measured at six seconds on a ten-database server. That is
+   * too slow to run on a schedule, so it is collected only when asked for.
+   */
   clusterSizeBytes: DbMetric<number>;
   /** Bytes per day, from the change since the previous sample. */
   storageGrowthBytesPerDay: DbMetric<number>;

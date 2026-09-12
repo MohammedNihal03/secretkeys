@@ -168,6 +168,16 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 
+  /**
+   * One content width for the whole application shell.
+   *
+   * Wide enough for a dense dashboard on a laptop without letting a line of
+   * body text run past a comfortable measure. Defined once here because the
+   * header, the navigation, the page body and the footer must all agree: when
+   * they do not, the page grows a gutter down one side that reads as a bug.
+   */
+  --shell-width: 90rem;
+
   /* Squircle radii, per the double-bezel pattern */
   --radius-shell: 1.75rem;
   --radius-core: 1.375rem;

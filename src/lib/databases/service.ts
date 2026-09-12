@@ -11,8 +11,8 @@ import { getConstraintName, getSqlState, PG_ERROR } from '@/lib/db/errors';
 import { monitoredDatabases, projects } from '@/lib/db/schema';
 import type { HealthStatus } from '@/lib/health';
 import {
+  describeConnectionFailure,
   openMonitoringConnection,
-  scrubConnectionError,
   type DatabaseCredentials,
 } from './connection';
 import { SERVER_INFO_SQL, type ServerInfoRow } from './queries';
@@ -89,10 +89,7 @@ export async function checkConnection(
       ...(row ? { serverVersion: row.server_version } : {}),
     };
   } catch (error) {
-    const detail = scrubConnectionError(
-      error instanceof Error ? error.message : 'the connection failed',
-      { username: input.username }
-    );
+    const detail = describeConnectionFailure(error, { username: input.username });
     const sqlState = getSqlState(error);
 
     if (sqlState && REJECTED_SQLSTATES.has(sqlState)) {
@@ -218,10 +215,7 @@ export async function registerMonitoredDatabase(
   }
 }
 
-export type LoadedCredentials =
-  | { credentials: DatabaseCredentials }
-  | { error: string }
-  | null;
+export type LoadedCredentials = { credentials: DatabaseCredentials } | { error: string } | null;
 
 /**
  * Decrypts one target's credentials.
@@ -278,10 +272,7 @@ export async function loadDatabaseCredentials(
 export async function recheckDatabase(
   organizationId: string,
   databaseId: string,
-  target: Pick<
-    DatabaseTarget,
-    'host' | 'port' | 'databaseName' | 'username' | 'sslEnabled'
-  >
+  target: Pick<DatabaseTarget, 'host' | 'port' | 'databaseName' | 'username' | 'sslEnabled'>
 ): Promise<{ ok: true; check: ConnectionCheck } | { ok: false; error: string }> {
   const loaded = await loadDatabaseCredentials(organizationId, databaseId);
 

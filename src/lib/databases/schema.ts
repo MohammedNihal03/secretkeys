@@ -14,7 +14,8 @@ import { ENVIRONMENTS } from '@/lib/projects/schema';
 const trimmed = z.string().trim();
 
 /** Hostname labels, or a bare IPv4/IPv6 address. No scheme, port, or path. */
-const HOSTNAME_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+const HOSTNAME_PATTERN =
+  /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 const IPV6_PATTERN = /^[0-9a-fA-F:]+$/;
 
 export const hostSchema = trimmed

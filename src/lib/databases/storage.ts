@@ -3,12 +3,7 @@ import { and, asc, avg, count, desc, eq, gte, inArray, lt, lte, max, min, sql } 
 import { getDb } from '@/lib/db/client';
 import { databaseCollectorRuns, databaseMetrics, monitoredDatabases } from '@/lib/db/schema';
 import { eachMetric } from './collect';
-import type {
-  CounterSample,
-  DatabaseMetricsSink,
-  DatabaseSnapshot,
-  DatabaseTarget,
-} from './types';
+import type { CounterSample, DatabaseMetricsSink, DatabaseSnapshot, DatabaseTarget } from './types';
 
 /**
  * Storing and reading the database metric time series.
@@ -217,9 +212,7 @@ export async function recordDatabaseRun(
  * so there is one copy of each number and no way for the two to disagree. The
  * paths named here are exactly the ones `CounterSample` is built from.
  */
-export async function previousCounterSample(
-  target: DatabaseTarget
-): Promise<CounterSample | null> {
+export async function previousCounterSample(target: DatabaseTarget): Promise<CounterSample | null> {
   const paths = [
     'postgres.committedTransactions',
     'queries.rolledBackTransactions',
@@ -469,6 +462,70 @@ export async function latestMetrics(
     .sort((a, b) => a.metric.localeCompare(b.metric));
 }
 
+/**
+ * The newest reading of every metric, for every database in an organization.
+ *
+ * One `distinct on` rather than a query per database: a dashboard showing six
+ * databases with thirty metrics each would otherwise make a hundred and eighty
+ * round trips to render one page.
+ */
+export async function latestMetricsByDatabase(
+  organizationId: string,
+  since: Date
+): Promise<Map<string, MetricSummary[]>> {
+  const result = await getDb().execute<{
+    database_id: string;
+    metric: string;
+    value: number | null;
+    reason: string | null;
+    detail: string | null;
+    text_value: string | null;
+    timestamp: Date;
+  }>(sql`
+    select distinct on (${databaseMetrics.databaseId}, ${databaseMetrics.metric})
+      ${databaseMetrics.databaseId} as database_id,
+      ${databaseMetrics.metric} as metric,
+      ${databaseMetrics.value} as value,
+      ${databaseMetrics.reason} as reason,
+      ${databaseMetrics.detail} as detail,
+      ${databaseMetrics.textValue} as text_value,
+      ${databaseMetrics.timestamp} as timestamp
+    from ${databaseMetrics}
+    where ${databaseMetrics.organizationId} = ${organizationId}
+      and ${databaseMetrics.timestamp} >= ${since}
+    order by ${databaseMetrics.databaseId}, ${databaseMetrics.metric}, ${databaseMetrics.timestamp} desc
+  `);
+
+  const byDatabase = new Map<string, MetricSummary[]>();
+
+  for (const row of result.rows) {
+    const summaries = byDatabase.get(row.database_id) ?? [];
+
+    summaries.push({
+      metric: row.metric,
+      /**
+       * One sample, because this is the latest reading rather than a range.
+       * A caller that needs min/max/average over a window asks `latestMetrics`
+       * for a single database instead of inferring it from here.
+       */
+      samples: 1,
+      readings: row.value === null ? 0 : 1,
+      min: row.value,
+      max: row.value,
+      average: row.value,
+      latest: row.value,
+      latestAt: row.timestamp,
+      latestReason: row.reason,
+      latestDetail: row.detail,
+      latestText: row.text_value,
+    });
+
+    byDatabase.set(row.database_id, summaries);
+  }
+
+  return byDatabase;
+}
+
 /** The most recent collection attempt for each database in an organization. */
 export async function latestRuns(organizationId: string) {
   return getDb().execute<{
@@ -496,6 +553,81 @@ export async function latestRuns(organizationId: string) {
     where ${databaseCollectorRuns.organizationId} = ${organizationId}
     order by ${databaseCollectorRuns.databaseId}, ${databaseCollectorRuns.startedAt} desc
   `);
+}
+
+/**
+ * Several metrics' histories in one query.
+ *
+ * A detail page charts three or four series; fetching them separately would be
+ * three or four scans of the same index range for the same rows.
+ */
+export async function metricHistories(
+  organizationId: string,
+  databaseId: string,
+  metrics: readonly string[],
+  since: Date
+): Promise<Map<string, MetricPoint[]>> {
+  const rows = await getDb()
+    .select({
+      metric: databaseMetrics.metric,
+      timestamp: databaseMetrics.timestamp,
+      value: databaseMetrics.value,
+      reason: databaseMetrics.reason,
+      detail: databaseMetrics.detail,
+      textValue: databaseMetrics.textValue,
+    })
+    .from(databaseMetrics)
+    .where(
+      and(
+        eq(databaseMetrics.organizationId, organizationId),
+        eq(databaseMetrics.databaseId, databaseId),
+        gte(databaseMetrics.timestamp, since),
+        inArray(databaseMetrics.metric, [...metrics])
+      )
+    )
+    .orderBy(asc(databaseMetrics.timestamp));
+
+  const byMetric = new Map<string, MetricPoint[]>();
+
+  for (const row of rows) {
+    const points = byMetric.get(row.metric) ?? [];
+    points.push({
+      timestamp: row.timestamp,
+      value: row.value,
+      reason: row.reason,
+      detail: row.detail,
+      textValue: row.textValue,
+    });
+    byMetric.set(row.metric, points);
+  }
+
+  return byMetric;
+}
+
+/** Recent collection attempts for one database, newest first. */
+export async function runsForDatabase(organizationId: string, databaseId: string, limit = 10) {
+  return getDb()
+    .select({
+      id: databaseCollectorRuns.id,
+      startedAt: databaseCollectorRuns.startedAt,
+      finishedAt: databaseCollectorRuns.finishedAt,
+      outcome: databaseCollectorRuns.outcome,
+      status: databaseCollectorRuns.status,
+      reachable: databaseCollectorRuns.reachable,
+      responseTimeMs: databaseCollectorRuns.responseTimeMs,
+      metricsStored: databaseCollectorRuns.metricsStored,
+      notes: databaseCollectorRuns.notes,
+      error: databaseCollectorRuns.error,
+    })
+    .from(databaseCollectorRuns)
+    .where(
+      and(
+        eq(databaseCollectorRuns.organizationId, organizationId),
+        eq(databaseCollectorRuns.databaseId, databaseId)
+      )
+    )
+    .orderBy(desc(databaseCollectorRuns.startedAt))
+    .limit(limit);
 }
 
 /**

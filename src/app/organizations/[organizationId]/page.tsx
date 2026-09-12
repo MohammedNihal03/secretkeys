@@ -1,153 +1,477 @@
 import Link from 'next/link';
 
+import { HealthDot, HealthPill } from '@/components/health-pill';
+import {
+  Metric,
+  formatAgo,
+  formatBytes,
+  formatCount,
+  formatMs,
+  formatUsd,
+} from '@/components/metric';
 import { Notice } from '@/components/notice';
+import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
-import { listProjects } from '@/lib/projects/repository';
-import { listProviderSelection } from '@/lib/providers/selection';
+import { loadDashboardOverview, type DashboardOverview } from '@/lib/dashboard/overview';
+import { buildDailySeries } from '@/lib/dashboard/series';
+import { LEVEL_LABELS } from '@/lib/evaluation/engine';
 
 /**
- * Organization overview.
+ * The organization dashboard.
  *
- * Reports only what is genuinely known at this phase: how many projects exist
- * and how many credentials are registered. The health and usage dashboard
- * arrives in Phase 10, once collectors are producing real metrics -- inventing
- * numbers here to fill the space is exactly what the build plan forbids.
+ * It answers one question: is everything healthy. Every number on it was
+ * written by a collector; there is no sample data, and nothing is shown as zero
+ * because a figure was missing. Where a provider cannot report something, the
+ * card says so in the space the number would have occupied.
+ *
+ * One data call, in `loadDashboardOverview`, so the page makes a fixed number
+ * of queries no matter how many panels render.
  */
 
 export const dynamic = 'force-dynamic';
 
-export default async function OrganizationOverview({
+const HEADLINE: Record<string, string> = {
+  healthy: 'Everything is healthy.',
+  warning: 'Something needs attention.',
+  critical: 'Something is broken.',
+  unknown: 'Not everything can be seen.',
+};
+
+export default async function OrganizationDashboard({
   params,
 }: PageProps<'/organizations/[organizationId]'>) {
   const { organizationId } = await params;
   const access = await requireOrgAccess(organizationId);
-
-  const [projects, selection] = await Promise.all([
-    listProjects(organizationId),
-    listProviderSelection(organizationId),
-  ]);
+  const overview = await loadDashboardOverview(organizationId);
 
   const base = `/organizations/${organizationId}`;
-  const totalKeys = projects.reduce((sum, project) => sum + project.apiKeyCount, 0);
-  const totalDatabases = projects.reduce((sum, project) => sum + project.databaseCount, 0);
-  const tracked = selection.filter((entry) => entry.enabled);
   const canManage = hasPermission(access.role, 'providers:manage');
+  const now = new Date();
+
+  const nothingConfigured = overview.setup.apiKeys === 0 && overview.setup.databases === 0;
 
   return (
     <div className="animate-rise flex flex-col gap-8">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        <p className="text-sm text-muted">
-          No metrics are being collected yet. Collectors arrive in Phase 5.
-        </p>
-      </header>
+      <StatusHeader overview={overview} now={now} />
 
-      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-        <Stat label="Projects" value={projects.length} href={`${base}/projects`} />
-        <Stat
-          label="Providers tracked"
-          value={tracked.length}
-          of={selection.length}
-          href={`${base}/providers`}
-        />
-        <Stat label="API keys" value={totalKeys} />
-        <Stat label="Databases" value={totalDatabases} />
-      </dl>
-
-      {/*
-        The two prerequisites before anything can be collected, each with the
-        one next step. Reported in order, because a project must exist before a
-        credential can be attributed to it.
-      */}
-      {projects.length === 0 ? (
+      {nothingConfigured ? (
         <Notice
           tone="empty"
-          title="Nothing is set up yet"
+          title="Nothing is being monitored yet"
           action={
             canManage ? (
-              <Link
-                href={`${base}/projects/new`}
-                className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-95 active:scale-[0.98]"
-              >
-                Create a project
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link href={`${base}/keys/new`} className={PRIMARY_BUTTON}>
+                  Register an API key
+                </Link>
+                <Link href={`${base}/databases/new`} className={SECONDARY_BUTTON}>
+                  Add a database
+                </Link>
+              </div>
             ) : undefined
           }
         >
-          A project is what usage and cost get attributed to, so one has to exist before an API key
-          can be registered against it. After that, choose which providers to track.
-        </Notice>
-      ) : tracked.length === 0 ? (
-        <Notice
-          tone="empty"
-          title="No providers are being tracked"
-          action={
-            canManage ? (
-              <Link
-                href={`${base}/providers`}
-                className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-95 active:scale-[0.98]"
-              >
-                Choose providers
-              </Link>
-            ) : undefined
-          }
-        >
-          There {projects.length === 1 ? 'is' : 'are'} {projects.length}{' '}
-          {projects.length === 1 ? 'project' : 'projects'} here but no provider selected, so there
-          is nothing to collect from.
+          This dashboard reads from two collectors. Register a provider credential and it will start
+          reporting usage, cost and limits; add a PostgreSQL database and it will start reporting
+          connections, queries and cache behaviour. Until one of those exists there is genuinely
+          nothing to show, and inventing a number here would make the whole page untrustworthy.
         </Notice>
       ) : (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-faint">Tracking</h2>
-          <div className="flex flex-wrap gap-1.5">
-            {tracked.map((entry) => (
-              <span
-                key={entry.providerId}
-                className="rounded-full border border-hairline bg-shell px-2.5 py-1 text-xs text-muted"
-              >
-                {entry.displayName}
-              </span>
-            ))}
+        <>
+          <UsageSummary overview={overview} />
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+            <AiPanel overview={overview} base={base} canManage={canManage} />
+            <DatabasePanelList overview={overview} base={base} canManage={canManage} now={now} />
           </div>
-          <p className="text-sm text-muted">
-            <Link
-              href={`${base}/providers`}
-              className="underline underline-offset-4 hover:text-foreground"
-            >
-              See what each one exposes
-            </Link>{' '}
-            — they differ substantially, and several report no usage at all.
-          </p>
-        </section>
+          <Attention overview={overview} now={now} />
+        </>
       )}
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  href,
-  of,
-}: {
-  label: string;
-  value: number;
-  href?: string;
-  /** Renders as "2 / 7" when a total is what gives the number meaning. */
-  of?: number;
-}) {
-  const body = (
-    <div className="bezel rounded-shell p-1.5 transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-0.5">
-      <div className="glass rounded-core flex flex-col gap-1 px-4 py-3.5">
-        <dt className="text-xs text-muted">{label}</dt>
-        <dd className="font-mono text-2xl tabular-nums">
-          {value}
-          {of === undefined ? null : <span className="text-base text-faint"> / {of}</span>}
-        </dd>
+const PRIMARY_BUTTON =
+  'rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:opacity-95 active:scale-[0.98]';
+
+const SECONDARY_BUTTON =
+  'rounded-full border border-hairline bg-shell px-4 py-2 text-sm font-medium text-muted transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.98]';
+
+/** The answer to "is everything healthy", before any detail. */
+function StatusHeader({ overview, now }: { overview: DashboardOverview; now: Date }) {
+  const collectedAt = [overview.ai.lastCollectedAt, overview.databases.lastCheckedAt]
+    .filter((at): at is Date => at !== null)
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
+  return (
+    <header className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">{HEADLINE[overview.level]}</h1>
+        <HealthPill level={overview.level} />
       </div>
-    </div>
+
+      <p className="max-w-[70ch] text-sm text-muted">
+        {overview.level === 'unknown'
+          ? 'Some of what this organization tracks cannot be read. Each panel below says which part, and why.'
+          : `Across ${overview.setup.apiKeys} credential${
+              overview.setup.apiKeys === 1 ? '' : 's'
+            } and ${overview.setup.databases} database${
+              overview.setup.databases === 1 ? '' : 's'
+            }, over the last ${overview.window.days} days.`}
+        {collectedAt ? ` Last collection ${formatAgo(collectedAt, now)}.` : ''}
+      </p>
+    </header>
+  );
+}
+
+/**
+ * The organization's totals.
+ *
+ * Hairline-separated rather than four cards: at this density, boxes add borders
+ * without adding hierarchy, and the numbers are what the eye should land on.
+ */
+function UsageSummary({ overview }: { overview: DashboardOverview }) {
+  const { totals, series } = overview.ai;
+
+  const points: TrendPoint[] = buildDailySeries(
+    overview.ai.series,
+    overview.window.from,
+    overview.window.days
   );
 
-  return href ? <Link href={href}>{body}</Link> : body;
+  const costNote =
+    totals.costIntervals > 0 && totals.costIntervals < totals.intervals
+      ? `${totals.costIntervals} of ${totals.intervals} intervals reported cost`
+      : 'as reported by the providers';
+
+  return (
+    <section className="glass rounded-(--radius-core) p-5 sm:p-6">
+      <div className="grid gap-6 divide-hairline sm:grid-cols-2 lg:grid-cols-4 lg:divide-x">
+        <div className="lg:pr-6">
+          <Metric
+            label="Requests"
+            size="lg"
+            value={formatCount(totals.requests)}
+            reason={
+              overview.ai.collected
+                ? 'No tracked provider reports a request count.'
+                : 'No collection has run yet.'
+            }
+            note={`over ${overview.window.days} days`}
+          />
+        </div>
+        <div className="lg:px-6">
+          <Metric
+            label="Tokens"
+            size="lg"
+            value={formatCount(totals.totalTokens)}
+            reason={
+              overview.ai.collected
+                ? 'No tracked provider reports token usage.'
+                : 'No collection has run yet.'
+            }
+            note="input plus output"
+          />
+        </div>
+        <div className="lg:px-6">
+          <Metric
+            label="Estimated cost"
+            size="lg"
+            value={formatUsd(totals.estimatedCost)}
+            reason={
+              overview.ai.collected
+                ? 'No tracked provider reports cost. It is never derived from a price list here.'
+                : 'No collection has run yet.'
+            }
+            note={costNote}
+          />
+        </div>
+        <div className="lg:pl-6">
+          <Metric
+            label="Connections"
+            size="lg"
+            value={formatCount(sumConnections(overview))}
+            reason={
+              overview.databases.collected
+                ? 'No database reported a connection count.'
+                : 'No database has been collected from yet.'
+            }
+            note={`across ${overview.setup.databases} database${
+              overview.setup.databases === 1 ? '' : 's'
+            }`}
+          />
+        </div>
+      </div>
+
+      {series.length > 0 ? (
+        <div className="mt-6 border-t border-hairline pt-5">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-medium">Requests per day</h2>
+            <span className="text-[11px] text-faint">
+              {series.length} interval{series.length === 1 ? '' : 's'} stored
+            </span>
+          </div>
+          <TrendChart
+            points={points}
+            format={(value) => value.toLocaleString('en-US')}
+            title="AI requests per day"
+          />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function sumConnections(overview: DashboardOverview): number | null {
+  const readings = overview.databases.items
+    .map((item) => item.connections)
+    .filter((value): value is number => value !== null);
+
+  return readings.length > 0 ? readings.reduce((total, value) => total + value, 0) : null;
+}
+
+function AiPanel({
+  overview,
+  base,
+  canManage,
+}: {
+  overview: DashboardOverview;
+  base: string;
+  canManage: boolean;
+}) {
+  return (
+    <section className="glass flex flex-col rounded-(--radius-core)">
+      <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-sm font-medium">AI providers</h2>
+          <HealthPill level={overview.ai.level} size="sm" />
+        </div>
+        <Link
+          href={`${base}/keys`}
+          className="text-xs text-muted transition-colors hover:text-foreground"
+        >
+          API keys
+        </Link>
+      </div>
+
+      {overview.ai.providers.length === 0 ? (
+        <div className="p-5">
+          <Notice
+            tone="empty"
+            title="No provider is being collected from"
+            action={
+              canManage ? (
+                <Link href={`${base}/keys/new`} className={SECONDARY_BUTTON}>
+                  Register a key
+                </Link>
+              ) : undefined
+            }
+          >
+            A provider appears here once this organization tracks it and holds a credential for it.
+            Choose providers on the Providers page, then register a key against a project.
+          </Notice>
+        </div>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {overview.ai.providers.map((provider) => (
+            <li key={provider.providerId} className="flex flex-col gap-2.5 px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <HealthDot level={provider.level} title={provider.name} />
+                  <span className="truncate text-sm font-medium">{provider.name}</span>
+                  <span className="shrink-0 text-[11px] text-faint">
+                    {provider.keyCount} key{provider.keyCount === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-muted">
+                  {formatMs(provider.latencyMs) ?? '–'}
+                </span>
+              </div>
+
+              <p className="text-xs leading-snug text-muted">{provider.headline}</p>
+
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <Metric
+                  label="Requests"
+                  size="sm"
+                  value={formatCount(provider.requests)}
+                  reason="Not reported"
+                />
+                <Metric
+                  label="Tokens"
+                  size="sm"
+                  value={formatCount(provider.totalTokens)}
+                  reason="Not reported"
+                />
+                <Metric
+                  label="Cost"
+                  size="sm"
+                  value={formatUsd(provider.estimatedCost)}
+                  reason="Not reported"
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function DatabasePanelList({
+  overview,
+  base,
+  canManage,
+  now,
+}: {
+  overview: DashboardOverview;
+  base: string;
+  canManage: boolean;
+  now: Date;
+}) {
+  return (
+    <section className="glass flex flex-col rounded-(--radius-core)">
+      <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-sm font-medium">Databases</h2>
+          {overview.databases.items.length > 0 ? (
+            <HealthPill level={overview.databases.level} size="sm" />
+          ) : null}
+        </div>
+        <Link
+          href={`${base}/databases`}
+          className="text-xs text-muted transition-colors hover:text-foreground"
+        >
+          All databases
+        </Link>
+      </div>
+
+      {overview.databases.items.length === 0 ? (
+        <div className="p-5">
+          <Notice
+            tone="empty"
+            title="No database is registered"
+            action={
+              canManage ? (
+                <Link href={`${base}/databases/new`} className={SECONDARY_BUTTON}>
+                  Add a database
+                </Link>
+              ) : undefined
+            }
+          >
+            Register a PostgreSQL database with a least-privilege monitoring role and the collector
+            will report its connections, queries, cache behaviour and size. It connects over its own
+            short-lived, read-only session.
+          </Notice>
+        </div>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {overview.databases.items.map((item) => (
+            <li key={item.databaseId} className="flex flex-col gap-2.5 px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <HealthDot level={item.assessment.level} title={item.name} />
+                  <Link
+                    href={`${base}/databases/${item.databaseId}`}
+                    className="truncate text-sm font-medium transition-colors hover:text-accent"
+                  >
+                    {item.name}
+                  </Link>
+                  <span className="shrink-0 text-[11px] uppercase tracking-[0.12em] text-faint">
+                    {item.environment}
+                  </span>
+                </div>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-muted">
+                  {formatMs(item.responseTimeMs) ?? '–'}
+                </span>
+              </div>
+
+              <p className="text-xs leading-snug text-muted">{item.assessment.headline}</p>
+
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <Metric
+                  label="Connections"
+                  size="sm"
+                  value={formatCount(item.connections)}
+                  reason="Not collected"
+                  note={
+                    item.connectionUtilization !== null
+                      ? `${item.connectionUtilization}% of max`
+                      : undefined
+                  }
+                />
+                <Metric
+                  label="Size"
+                  size="sm"
+                  value={formatBytes(item.sizeBytes)}
+                  reason="Not collected"
+                />
+                <Metric
+                  label="Checked"
+                  size="sm"
+                  value={formatAgo(item.lastCheckedAt, now)}
+                  reason="Never"
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** What is wrong now, and what broke recently. */
+function Attention({ overview, now }: { overview: DashboardOverview; now: Date }) {
+  if (overview.attention.length === 0 && overview.recentErrors.length === 0) {
+    return (
+      <section className="rounded-(--radius-core) border border-hairline px-5 py-4">
+        <p className="text-sm text-muted">
+          Nothing is above a warning threshold, and no collection has failed recently.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {overview.attention.length > 0 ? (
+        <section className="glass rounded-(--radius-core)">
+          <h2 className="border-b border-hairline px-5 py-4 text-sm font-medium">
+            Active warnings
+          </h2>
+          <ul className="divide-y divide-hairline">
+            {overview.attention.slice(0, 6).map((item, index) => (
+              <li key={`${item.source}-${index}`} className="flex gap-3 px-5 py-3">
+                <HealthDot level={item.level} title={LEVEL_LABELS[item.level]} />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">{item.source}</p>
+                  <p className="text-xs leading-snug text-muted">{item.message}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {overview.recentErrors.length > 0 ? (
+        <section className="glass rounded-(--radius-core)">
+          <h2 className="border-b border-hairline px-5 py-4 text-sm font-medium">Recent errors</h2>
+          <ul className="divide-y divide-hairline">
+            {overview.recentErrors.map((error, index) => (
+              <li key={`${error.source}-${index}`} className="flex flex-col gap-1 px-5 py-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs font-medium">{error.source}</span>
+                  <span className="shrink-0 text-[11px] text-faint">
+                    {formatAgo(error.at, now)}
+                  </span>
+                </div>
+                <p className="break-words text-xs leading-snug text-muted">{error.message}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
 }

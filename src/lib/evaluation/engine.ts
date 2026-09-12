@@ -46,6 +46,31 @@ export interface Finding {
   rule?: ThresholdRule;
   /** Present on an `unknown`: why the number is missing. */
   reason?: string;
+  /**
+   * True when this metric can never be read from this source.
+   *
+   * PostgreSQL exposes no host CPU, memory or free disk, and no amount of
+   * configuration changes that. Such a finding is still shown -- an operator
+   * should know nothing is watching disk -- but it is excluded from the rollup,
+   * because a permanent `unknown` on every healthy database would make the
+   * state meaningless within a day and teach people to ignore it.
+   *
+   * A fixable absence -- a missing grant, a failed query, a rate still waiting
+   * for its second sample -- is *not* structural, and does reach the rollup.
+   */
+  structural?: boolean;
+}
+
+/**
+ * Reasons that describe the source rather than the setup.
+ *
+ * The distinction is the difference between "go and fix this" and "this can
+ * never be known here".
+ */
+const STRUCTURAL_REASONS = new Set(['not_exposed_by_postgres', 'too_expensive', 'unsupported']);
+
+export function isStructural(reason: string | null | undefined): boolean {
+  return reason !== null && reason !== undefined && STRUCTURAL_REASONS.has(reason);
 }
 
 /**
@@ -141,6 +166,7 @@ export function evaluate(reading: Reading): Finding | null {
       unit: rule.unit,
       rule,
       reason: reading.reason ?? 'unavailable',
+      ...(isStructural(reading.reason) ? { structural: true } : {}),
       message: reading.detail ?? `${label} could not be read, so it is not being judged.`,
     };
   }
@@ -196,6 +222,20 @@ export function evaluateAll(
     // `evaluate` returns null only for a metric with no rule, and this one has one.
     return evaluate(reading) as Finding;
   });
+}
+
+/**
+ * The level a set of findings rolls up to.
+ *
+ * Structural unknowns are set aside first: they are permanent properties of the
+ * data source, and letting them decide the rollup would paint every healthy
+ * database amber forever. If *everything* is structural, the answer is still
+ * `unknown` -- nothing is actually being judged.
+ */
+export function rollUp(findings: readonly Finding[]): HealthLevel {
+  const judged = findings.filter((finding) => !finding.structural);
+
+  return judged.length > 0 ? aggregate(judged.map((finding) => finding.level)) : 'unknown';
 }
 
 /** The findings worth showing first: worst level, then largest breach. */

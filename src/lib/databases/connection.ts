@@ -1,5 +1,6 @@
 import { Client, type ClientConfig } from 'pg';
 
+import { getSqlState, PG_ERROR } from '@/lib/db/errors';
 import { getEnv } from '@/lib/env';
 
 /**
@@ -134,6 +135,59 @@ export function scrubConnectionError(message: string, input?: { username?: strin
   }
 
   return cleaned;
+}
+
+/**
+ * Turns a connection failure into something an operator can act on.
+ *
+ * The raw driver messages are the worst part of diagnosing a database problem:
+ * `sorry, too many clients already` is a famous one that says nothing about
+ * what to do, and `ECONNREFUSED` and `ETIMEDOUT` look identical to someone who
+ * has not met them before, while meaning very different things -- one is a
+ * server that answered and refused, the other is a packet that never arrived.
+ *
+ * Each case names the cause and the next step. The original message is kept on
+ * the end, scrubbed, so nothing is hidden.
+ */
+export function describeConnectionFailure(error: unknown, input?: { username?: string }): string {
+  const raw = error instanceof Error ? error.message : 'the connection failed';
+  const detail = scrubConnectionError(raw, input);
+  const code = (error as { code?: string } | null)?.code;
+  const sqlState = getSqlState(error);
+
+  if (sqlState === PG_ERROR.tooManyConnections) {
+    return `The server has no connection slots left: it is at max_connections. New clients, including this collector, are being refused. (${detail})`;
+  }
+
+  if (sqlState === '28P01') {
+    return `The password for this role was rejected by the server. (${detail})`;
+  }
+
+  if (sqlState === '28000') {
+    return `The server refused this role. Usually pg_hba.conf does not allow it to connect from here. (${detail})`;
+  }
+
+  if (sqlState === '3D000') {
+    return `That database does not exist on this server. (${detail})`;
+  }
+
+  if (code === 'ECONNREFUSED') {
+    return `Nothing is listening on that host and port. The server may be stopped, or the port may be wrong. (${detail})`;
+  }
+
+  if (code === 'ETIMEDOUT' || /timeout/i.test(raw)) {
+    return `The server did not answer within ${CONNECTION_LIMITS.connectTimeoutMs}ms. A firewall or security group is the usual cause when the server itself is up. (${detail})`;
+  }
+
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+    return `That host name could not be resolved. (${detail})`;
+  }
+
+  if (/self[- ]signed|certificate|SSL|TLS/i.test(raw)) {
+    return `The TLS handshake failed. Paste the server's certificate authority, or accept an unverified certificate for this database if you understand the risk. (${detail})`;
+  }
+
+  return detail;
 }
 
 /** A connected client plus how long each stage took. */

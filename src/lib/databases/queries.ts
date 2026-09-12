@@ -56,24 +56,37 @@ export interface ServerInfoRow {
 }
 
 /**
- * Sizes.
+ * The size of this database.
  *
- * The cluster total is summed over `pg_database` and skips databases this role
- * cannot connect to, because `pg_database_size` raises on those. A partial
- * total is still useful; an error instead of every other metric is not.
+ * `pg_database_size` walks the directory, so it is the most expensive statement
+ * the collector runs. It is on its own -- separate from the cluster total below
+ * -- because on a server with several large databases the sum can exceed the
+ * collector's statement timeout, and losing the cluster total is acceptable
+ * while losing this database's own size is not.
  */
-export const SIZE_SQL = `
-  select
-    pg_database_size(current_database())::float8 as database_size_bytes,
-    (
-      select sum(pg_database_size(d.oid))::float8
-      from pg_database d
-      where d.datallowconn and has_database_privilege(d.oid, 'CONNECT')
-    ) as cluster_size_bytes
+export const DATABASE_SIZE_SQL = `
+  select pg_database_size(current_database())::float8 as database_size_bytes
 `;
 
-export interface SizeRow {
+export interface DatabaseSizeRow {
   database_size_bytes: number;
+}
+
+/**
+ * Every database on the server, which is what actually fills the disk.
+ *
+ * Skips databases this role cannot connect to, because `pg_database_size`
+ * raises on those; a partial total is still useful, an error is not. Expected
+ * to time out on a very large cluster, in which case the metric records that as
+ * its reason rather than the collection failing.
+ */
+export const CLUSTER_SIZE_SQL = `
+  select sum(pg_database_size(d.oid))::float8 as cluster_size_bytes
+  from pg_database d
+  where d.datallowconn and has_database_privilege(d.oid, 'CONNECT')
+`;
+
+export interface ClusterSizeRow {
   cluster_size_bytes: number | null;
 }
 

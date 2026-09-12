@@ -1,4 +1,14 @@
-import { boolean, doublePrecision, foreignKey, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  doublePrecision,
+  foreignKey,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 import { primaryId, timestamps } from './columns';
 import { monitoredDatabases } from './monitored-databases';
@@ -96,7 +106,11 @@ export const databaseMetrics = pgTable(
      * the database and the metric and ending with time makes it a single range
      * scan.
      */
-    index('database_metrics_db_metric_time_idx').on(table.databaseId, table.metric, table.timestamp),
+    index('database_metrics_db_metric_time_idx').on(
+      table.databaseId,
+      table.metric,
+      table.timestamp
+    ),
 
     /** The dashboard query: everything about one organization at a time. */
     index('database_metrics_org_time_idx').on(table.organizationId, table.timestamp),

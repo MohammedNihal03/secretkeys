@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { InlineNotice, Notice } from '@/components/notice';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
@@ -201,7 +203,18 @@ function ProviderCard({
       <div className="glass rounded-core flex flex-col gap-3.5 px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <h3 className="text-sm font-medium">{adapter.displayName}</h3>
+            {/* Tracked providers link to their analytics; an untracked one has
+                nothing collected to show, so its name is not a link. */}
+            {entry.enabled ? (
+              <Link
+                href={`/organizations/${organizationId}/providers/${entry.providerId}`}
+                className="text-sm font-medium transition-colors hover:text-accent"
+              >
+                {adapter.displayName}
+              </Link>
+            ) : (
+              <h3 className="text-sm font-medium">{adapter.displayName}</h3>
+            )}
             <span className="rounded-full border border-hairline px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
               {adapter.category === 'llm' ? 'LLM' : 'Speech'}
             </span>

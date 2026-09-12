@@ -115,6 +115,47 @@ export const DATABASE_THRESHOLDS: readonly ThresholdRule[] = [
     rationale:
       'PostgreSQL breaks deadlocks by killing a transaction. Any deadlock means an application lost work; a rising count means it is losing work repeatedly.',
   },
+  /**
+   * Host resources.
+   *
+   * PostgreSQL exposes none of these, so today every one of them evaluates to
+   * `unknown` with that as the reason. They are listed anyway, because the
+   * build plan asks for disk, CPU and memory to be evaluated, and an operator
+   * is better served by "nothing is watching disk, here is why" than by a
+   * dashboard that never mentions disk at all. A future source -- a cloud
+   * provider's metrics API, a node agent -- fills them in without touching the
+   * evaluator.
+   */
+  {
+    metric: 'resources.diskUsedPercent',
+    label: 'Disk used',
+    direction: 'above',
+    warning: 80,
+    critical: 90,
+    unit: 'percent',
+    rationale:
+      'A full disk stops PostgreSQL writing, and recovery from that is manual. The warning has to arrive while there is still room to act.',
+  },
+  {
+    metric: 'resources.cpuPercent',
+    label: 'CPU',
+    direction: 'above',
+    warning: 80,
+    critical: 95,
+    unit: 'percent',
+    rationale:
+      'Sustained high CPU shows up as latency in every query at once, rather than in any single slow statement.',
+  },
+  {
+    metric: 'resources.memoryPercent',
+    label: 'Memory',
+    direction: 'above',
+    warning: 85,
+    critical: 95,
+    unit: 'percent',
+    rationale:
+      'Memory pressure pushes the operating system to evict cache, which turns cached reads into disk reads across the whole database.',
+  },
   {
     metric: 'connections.idleInTransaction',
     label: 'Idle in transaction',

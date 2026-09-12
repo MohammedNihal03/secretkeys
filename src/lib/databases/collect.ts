@@ -1,5 +1,8 @@
+import { getSqlState, PG_ERROR } from '@/lib/db/errors';
 import { HEALTH_THRESHOLDS } from '@/lib/health';
 import {
+  CONNECTION_LIMITS,
+  describeConnectionFailure,
   isDashboardsOwnDatabase,
   openMonitoringConnection,
   scrubConnectionError,
@@ -7,17 +10,19 @@ import {
 } from './connection';
 import {
   ACTIVITY_SQL,
+  CLUSTER_SIZE_SQL,
   CONNECTIONS_SQL,
+  DATABASE_SIZE_SQL,
   DATABASE_STATS_SQL,
   LOCKS_SQL,
   SERVER_INFO_SQL,
-  SIZE_SQL,
   type ActivityRow,
+  type ClusterSizeRow,
   type ConnectionsRow,
+  type DatabaseSizeRow,
   type DatabaseStatsRow,
   type LocksRow,
   type ServerInfoRow,
-  type SizeRow,
 } from './queries';
 import {
   countersReset,
@@ -26,6 +31,7 @@ import {
   needsPrivilege,
   notExposed,
   queryFailed,
+  tooExpensive,
   value,
   type ConnectionMetrics,
   type CounterSample,
@@ -74,6 +80,11 @@ export interface CollectDatabaseDeps {
   now?: () => Date;
   /** Only for the self-monitoring note; injected so tests need no environment. */
   isOwnDatabase?: (target: DatabaseTarget) => boolean;
+  /**
+   * Sum the size of every database on the server. Off by default because it
+   * walks each database's directory -- seconds, not milliseconds.
+   */
+  includeClusterSize?: boolean;
 }
 
 const NO_CPU_DETAIL =
@@ -98,6 +109,17 @@ async function attempt<T>(
 
     return row === undefined ? { error: 'The server returned no row.' } : { row };
   } catch (error) {
+    if (getSqlState(error) === PG_ERROR.queryCanceled) {
+      /**
+       * The collector's own `statement_timeout` stopped it. Said in those
+       * terms, because "canceling statement due to statement timeout" reads as
+       * a problem with the monitored database rather than a limit we imposed.
+       */
+      return {
+        error: `The read took longer than the collector's ${CONNECTION_LIMITS.statementTimeoutMs}ms limit and was cancelled.`,
+      };
+    }
+
     return { error: error instanceof Error ? error.message : 'query failed' };
   }
 }
@@ -183,10 +205,9 @@ export async function collectDatabase(
       credentials: deps.credentials,
     });
   } catch (error) {
-    const detail = scrubConnectionError(
-      error instanceof Error ? error.message : 'could not connect',
-      { username: target.username }
-    );
+    // Named rather than echoed: `sorry, too many clients already` is not a
+    // next step, and it is the failure an operator most needs to recognise.
+    const detail = describeConnectionFailure(error, { username: target.username });
     const finishedAt = now();
 
     return unreachableSnapshot(target, startedAt, finishedAt, detail, notes);
@@ -226,17 +247,23 @@ export async function collectDatabase(
     const server = info.row;
     const responseTimeMs = connectTimeMs + probeMs;
 
-    const [connectionsResult, sizeResult, statsResult, locksResult, activityResult] =
-      await Promise.all([
-        attempt<ConnectionsRow>(client, CONNECTIONS_SQL),
-        attempt<SizeRow>(client, SIZE_SQL),
-        attempt<DatabaseStatsRow>(client, DATABASE_STATS_SQL),
-        attempt<LocksRow>(client, LOCKS_SQL),
-        attempt<ActivityRow>(client, ACTIVITY_SQL, [
-          HEALTH_THRESHOLDS.slowQuerySeconds,
-          HEALTH_THRESHOLDS.longRunningQuerySeconds,
-        ]),
-      ]);
+    /**
+     * One statement at a time. A `pg.Client` is a single connection, so issuing
+     * these together would queue them on the wire anyway -- and the driver
+     * deprecates overlapping queries on one client. Sequential also keeps the
+     * footprint on the monitored server to exactly one backend doing one thing.
+     */
+    const connectionsResult = await attempt<ConnectionsRow>(client, CONNECTIONS_SQL);
+    const activityResult = await attempt<ActivityRow>(client, ACTIVITY_SQL, [
+      HEALTH_THRESHOLDS.slowQuerySeconds,
+      HEALTH_THRESHOLDS.longRunningQuerySeconds,
+    ]);
+    const locksResult = await attempt<LocksRow>(client, LOCKS_SQL);
+    const statsResult = await attempt<DatabaseStatsRow>(client, DATABASE_STATS_SQL);
+    const sizeResult = await attempt<DatabaseSizeRow>(client, DATABASE_SIZE_SQL);
+    const clusterSizeResult = deps.includeClusterSize
+      ? await attempt<ClusterSizeRow>(client, CLUSTER_SIZE_SQL)
+      : null;
 
     const privileges: RolePrivileges = {
       isSuperuser: server.is_superuser,
@@ -272,6 +299,10 @@ export async function collectDatabase(
     const statsError = 'error' in statsResult ? statsResult.error : null;
     const size = 'row' in sizeResult ? sizeResult.row : null;
     const sizeError = 'error' in sizeResult ? sizeResult.error : null;
+    const clusterSize =
+      clusterSizeResult && 'row' in clusterSizeResult ? clusterSizeResult.row : null;
+    const clusterSizeError =
+      clusterSizeResult && 'error' in clusterSizeResult ? clusterSizeResult.error : null;
 
     const counters: CounterSample | null = stats
       ? {
@@ -296,6 +327,9 @@ export async function collectDatabase(
     const resources = buildResources({
       size,
       sizeError,
+      clusterSize,
+      clusterSizeError,
+      clusterSizeRequested: deps.includeClusterSize ?? false,
       counters,
       previous,
       resetChanged,
@@ -442,14 +476,26 @@ function unreachableSnapshot(
 }
 
 function buildResources(input: {
-  size: SizeRow | null;
+  size: DatabaseSizeRow | null;
   sizeError: string | null;
+  clusterSize: ClusterSizeRow | null;
+  clusterSizeError: string | null;
+  clusterSizeRequested: boolean;
   counters: CounterSample | null;
   previous: CounterSample | null;
   resetChanged: boolean;
   elapsedSeconds: number;
 }): ResourceMetrics {
-  const { size, sizeError, counters, previous, elapsedSeconds } = input;
+  const {
+    size,
+    sizeError,
+    clusterSize,
+    clusterSizeError,
+    clusterSizeRequested,
+    counters,
+    previous,
+    elapsedSeconds,
+  } = input;
 
   let growth: DbMetric<number>;
 
@@ -471,14 +517,17 @@ function buildResources(input: {
     databaseSizeBytes: size
       ? value(Math.round(size.database_size_bytes))
       : queryFailed(sizeError ?? 'The database size could not be read.'),
-    clusterSizeBytes:
-      size && size.cluster_size_bytes !== null
-        ? value(Math.round(size.cluster_size_bytes))
-        : size
+    clusterSizeBytes: !clusterSizeRequested
+      ? tooExpensive(
+          'Summing every database on the server walks each one’s directory, which is too slow to run on a schedule. This database’s own size is above.'
+        )
+      : clusterSize && clusterSize.cluster_size_bytes !== null
+        ? value(Math.round(clusterSize.cluster_size_bytes))
+        : clusterSize
           ? needsPrivilege(
-              'The role cannot connect to every database on this server, so the cluster total would be incomplete.'
+              'The role cannot connect to any other database on this server, so no cluster total could be summed.'
             )
-          : queryFailed(sizeError ?? 'The cluster size could not be read.'),
+          : queryFailed(clusterSizeError ?? 'The cluster size could not be read.'),
     storageGrowthBytesPerDay: growth,
     // Host metrics, permanently. Said plainly rather than left blank.
     cpuPercent: notExposed(NO_CPU_DETAIL),
