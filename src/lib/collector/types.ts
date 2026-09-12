@@ -126,6 +126,9 @@ export interface CollectionSummary {
   usageEntries: number;
   usagePersisted: number;
   byProvider: Record<string, ProviderSummary>;
+  /** Alert conditions opened and closed by this run. */
+  alertsRaised: number;
+  alertsResolved: number;
   /** Messages worth showing an operator, already scrubbed of credentials. */
   problems: string[];
 }

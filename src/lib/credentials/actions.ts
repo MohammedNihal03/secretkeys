@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+import { resolveAllFor } from '@/lib/alerts/repository';
 import { requirePermission } from '@/lib/auth/guards';
 import {
   parseMetadataForm,
@@ -99,6 +100,14 @@ export async function setApiKeyStatusAction(
   }
 
   const result = await setApiKeyStatus(organizationId, apiKeyId, status);
+
+  /**
+   * A credential nobody collects from can never clear its own alerts, and an
+   * alert that cannot be cleared is what teaches people to ignore the list.
+   */
+  if (result.ok && status !== 'active') {
+    await resolveAllFor(organizationId, apiKeyId);
+  }
 
   revalidatePath(`/organizations/${organizationId}/keys`);
   revalidatePath(`/organizations/${organizationId}/keys/${apiKeyId}`);

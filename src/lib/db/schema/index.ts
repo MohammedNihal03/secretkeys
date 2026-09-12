@@ -37,4 +37,5 @@ export * from './monitored-databases';
 export * from './collector-runs';
 export * from './ai-usage';
 export * from './database-metrics';
+export * from './alerts';
 export * from './relations';

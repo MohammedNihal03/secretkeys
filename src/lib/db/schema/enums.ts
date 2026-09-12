@@ -113,3 +113,25 @@ export const collectorOutcomeEnum = pgEnum('collector_outcome', [
   'failed',
   'skipped',
 ]);
+
+/**
+ * What an alert is about.
+ *
+ * Kept as an enum rather than free text so a new resource type is a deliberate
+ * migration: an alerts page that has to guess how to link to its subject is an
+ * alerts page with dead links in it.
+ */
+export const resourceTypeEnum = pgEnum('alert_resource_type', ['api_key', 'monitored_database']);
+
+/**
+ * How bad it is.
+ *
+ * Only the two actionable levels of the health engine. `healthy` is the absence
+ * of an alert, and `unknown` deliberately does not raise one: "we cannot read
+ * this" is shown on the resource itself, and paging someone for it would train
+ * them to ignore alerts.
+ */
+export const alertSeverityEnum = pgEnum('alert_severity', ['warning', 'critical']);
+
+/** The lifecycle from the build plan: a condition is either ongoing or over. */
+export const alertStatusEnum = pgEnum('alert_status', ['active', 'resolved']);

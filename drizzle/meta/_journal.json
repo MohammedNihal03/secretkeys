@@ -85,6 +85,13 @@
       "when": 1789224381726,
       "tag": "0011_database_metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789227482312,
+      "tag": "0012_alerts",
+      "breakpoints": true
     }
   ]
 }

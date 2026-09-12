@@ -12,6 +12,8 @@ import { assessStoredMetrics, type DatabaseAssessment } from '@/lib/evaluation/d
 import { aggregate, type Finding, type HealthLevel } from '@/lib/evaluation/engine';
 import { listProjects } from '@/lib/projects/repository';
 import { listProviderSelection } from '@/lib/providers/selection';
+import { countActiveAlerts, listAlerts, type AlertView } from '@/lib/alerts/repository';
+import type { TimeRange } from './range';
 import {
   summarizeUsage,
   usageBreakdown,
@@ -59,7 +61,12 @@ export interface DatabasePanel {
 
 export interface DashboardOverview {
   level: HealthLevel;
-  window: { from: Date; to: Date; days: number };
+  window: TimeRange;
+
+  alerts: {
+    active: AlertView[];
+    counts: { warning: number; critical: number; total: number };
+  };
 
   setup: {
     projects: number;
@@ -106,12 +113,9 @@ function reading(metrics: { metric: string; latest: number | null }[], path: str
 
 export async function loadDashboardOverview(
   organizationId: string,
-  options: { days?: number; now?: () => Date } = {}
+  window: TimeRange
 ): Promise<DashboardOverview> {
-  const now = options.now ?? (() => new Date());
-  const days = options.days ?? 7;
-  const to = now();
-  const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+  const { from, to, days } = window;
   const range = { organizationId, from, to };
 
   const db = getDb();
@@ -150,7 +154,7 @@ export async function loadDashboardOverview(
       listProjects(organizationId),
       listProviderSelection(organizationId),
       summarizeUsage(range),
-      usageTimeSeries(range, days > 2 ? 'day' : 'hour'),
+      usageTimeSeries(range, window.bucket),
       usageBreakdown(range, 'provider'),
       db
         .select({ providerId: apiKeys.providerId, count: sql<number>`count(*)::int` })
@@ -253,7 +257,7 @@ export async function loadDashboardOverview(
   const databaseLevel = aggregate(databasePanels.map((panel) => panel.assessment.level));
   const aiLevel = assessedProviders.level;
 
-  const attention = [
+  const attentionFromFindings = [
     ...providers.flatMap((provider) =>
       provider.findings
         .filter((finding) => finding.level === 'critical' || finding.level === 'warning')
@@ -273,6 +277,7 @@ export async function loadDashboardOverview(
         }))
     ),
   ].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]);
+  const attention = attentionFromFindings;
 
   const recentErrors = [
     ...latestRuns.rows
@@ -296,6 +301,11 @@ export async function loadDashboardOverview(
   const aiCollected = latestRuns.rows.length > 0;
   const databasesCollected = databasePanels.some((panel) => panel.collected);
 
+  const [activeAlerts, alertCounts] = await Promise.all([
+    listAlerts({ organizationId, status: 'active', limit: 8 }),
+    countActiveAlerts(organizationId),
+  ]);
+
   return {
     /**
      * The organization's level is the worst of the two halves. Rolling up to
@@ -307,7 +317,9 @@ export async function loadDashboardOverview(
         (level): level is HealthLevel => level !== null
       )
     ),
-    window: { from, to, days },
+    window,
+
+    alerts: { active: activeAlerts, counts: alertCounts },
 
     setup: {
       projects: projects.length,

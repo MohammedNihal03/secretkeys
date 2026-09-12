@@ -1,3 +1,4 @@
+import { syncApiKeyAlerts } from '@/lib/alerts/service';
 import { loadCredentialForUse } from '@/lib/credentials/service';
 import { scrubSecrets } from '@/lib/providers/http';
 import { getAdapter } from '@/lib/providers/registry';
@@ -65,6 +66,11 @@ export interface RunCollectionOptions {
     detail: string | null
   ) => Promise<void>;
   acquireLock?: () => Promise<CollectorLock | null>;
+  /** Replaced in tests; defaults to reconciling alerts from the collection. */
+  syncAlerts?: (
+    target: CollectionTarget,
+    collection: TargetCollection
+  ) => Promise<{ raised: number; resolved: number }>;
 }
 
 /** Loads and decrypts a credential for one target. */
@@ -114,6 +120,34 @@ export async function runCollection(
   const adapterFor = options.adapterFor ?? getAdapter;
   const recordRun = options.recordRun ?? recordCollectorRun;
   const acquireLock = options.acquireLock ?? acquireCollectorLock;
+  /**
+   * Alerts are derived from the same assessment the dashboard shows, so the
+   * two can never disagree about whether a credential is in trouble.
+   */
+  const syncAlerts =
+    options.syncAlerts ??
+    ((target: CollectionTarget, collection: TargetCollection) =>
+      syncApiKeyAlerts(
+        {
+          organizationId: target.organizationId,
+          projectId: target.projectId,
+          apiKeyId: target.apiKeyId,
+          keyName: target.keyName,
+        },
+        {
+          name: target.keyName,
+          providerStatus: collection.health.status,
+          latencyMs: collection.health.latencyMs,
+          rateLimited: collection.health.rateLimited,
+          lastCollectedAt: collection.finishedAt,
+          lastError: collection.error ?? null,
+          requests: null,
+          failedRequests: null,
+          quotaUsedPercent: null,
+          rateLimitRemainingPercent: null,
+        },
+        now()
+      ));
   const saveCredentialCheck =
     options.saveCredentialCheck ??
     ((target, outcome, detail) =>
@@ -133,6 +167,8 @@ export async function runCollection(
     usageEntries: 0,
     usagePersisted: 0,
     byProvider: {},
+    alertsRaised: 0,
+    alertsResolved: 0,
     problems: [],
   };
 
@@ -311,6 +347,10 @@ export async function runCollection(
               collection.credentialOutcome,
               collection.error ?? null
             );
+
+            const alerts = await syncAlerts(target, collection);
+            summary.alertsRaised += alerts.raised;
+            summary.alertsResolved += alerts.resolved;
 
             logger(
               `${label}: ${collection.outcome} (${collection.health.status}, ` +

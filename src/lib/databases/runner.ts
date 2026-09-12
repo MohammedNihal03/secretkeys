@@ -1,3 +1,4 @@
+import { syncDatabaseAlerts } from '@/lib/alerts/service';
 import { acquireCollectorLock, type CollectorLock } from '@/lib/collector/lock';
 import { collectDatabase } from './collect';
 import { scrubConnectionError } from './connection';
@@ -50,6 +51,9 @@ export interface DatabaseCollectionSummary {
   failed: number;
   skipped: number;
   metricsStored: number;
+  /** Alert conditions opened and closed by this run. */
+  alertsRaised: number;
+  alertsResolved: number;
   byStatus: Record<string, number>;
   /** Messages worth showing an operator, already scrubbed of credentials. */
   problems: string[];
@@ -71,6 +75,8 @@ export interface RunDatabaseCollectionOptions {
   ) => Promise<{ credentials: { password: string } } | { error: string } | null>;
   collect?: typeof collectDatabase;
   saveCheck?: (snapshot: DatabaseSnapshot) => Promise<void>;
+  /** Replaced in tests; defaults to reconciling alerts from the snapshot. */
+  syncAlerts?: (snapshot: DatabaseSnapshot) => Promise<{ raised: number; resolved: number }>;
   acquireLock?: () => Promise<CollectorLock | null>;
 }
 
@@ -107,6 +113,7 @@ export async function runDatabaseCollection(
   const collect = options.collect ?? collectDatabase;
   const acquireLock =
     options.acquireLock ?? (() => acquireCollectorLock(DATABASE_COLLECTOR_LOCK_KEY));
+  const syncAlerts = options.syncAlerts ?? ((snapshot: DatabaseSnapshot) => syncDatabaseAlerts(snapshot, now()));
   const saveCheck =
     options.saveCheck ??
     ((snapshot: DatabaseSnapshot) =>
@@ -129,6 +136,8 @@ export async function runDatabaseCollection(
     failed: 0,
     skipped: 0,
     metricsStored: 0,
+    alertsRaised: 0,
+    alertsResolved: 0,
     byStatus: {},
     problems: [],
     snapshots: [],
@@ -206,6 +215,14 @@ export async function runDatabaseCollection(
         for (const message of written.notes) note(message);
 
         await saveCheck(snapshot);
+
+        /**
+         * Alerts come from the snapshot this run just produced, so an alert is
+         * never older than the measurement behind it.
+         */
+        const alerts = await syncAlerts(snapshot);
+        summary.alertsRaised += alerts.raised;
+        summary.alertsResolved += alerts.resolved;
 
         logger(
           `${label}: ${snapshot.outcome} (${snapshot.status}, ${snapshot.health.responseTimeMs}ms, ${written.stored} metrics stored)`

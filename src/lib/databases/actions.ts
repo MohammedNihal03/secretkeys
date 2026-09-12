@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 
+import { resolveAllFor } from '@/lib/alerts/repository';
 import { requirePermission } from '@/lib/auth/guards';
 import { getMonitoredDatabase, setDatabaseStatus, type DatabaseStatus } from './repository';
 import { fieldErrors, parseRegisterDatabase, type RegisterDatabaseFieldErrors } from './schema';
@@ -130,6 +131,15 @@ export async function setDatabaseStatusAction(
   await requirePermission(organizationId, 'databases:manage');
 
   await setDatabaseStatus(organizationId, databaseId, status);
+
+  /**
+   * A paused database is not collected from, so its open conditions can never
+   * be re-observed or cleared. They are closed with the pause.
+   */
+  if (status !== 'active') {
+    await resolveAllFor(organizationId, databaseId);
+  }
+
   revalidatePath(`/organizations/${organizationId}/databases/${databaseId}`);
   revalidatePath(`/organizations/${organizationId}/databases`);
 }

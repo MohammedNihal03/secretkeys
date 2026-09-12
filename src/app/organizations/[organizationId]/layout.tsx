@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { InlineNotice } from '@/components/notice';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { countActiveAlerts } from '@/lib/alerts/repository';
 import { signOut } from '@/lib/auth/actions';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { canManageAnything } from '@/lib/auth/permissions';
@@ -31,8 +32,16 @@ export default async function OrganizationLayout({
 
   const base = `/organizations/${organizationId}`;
 
+  /**
+   * The alert count rides in the navigation rather than only on the dashboard,
+   * so a person three pages deep still knows something is open.
+   */
+  const alerts = await countActiveAlerts(organizationId);
+
   const links = [
     { href: base, label: 'Overview' },
+    { href: `${base}/history`, label: 'History' },
+    { href: `${base}/alerts`, label: 'Alerts', count: alerts.total, severe: alerts.critical > 0 },
     { href: `${base}/projects`, label: 'Projects' },
     { href: `${base}/keys`, label: 'API keys' },
     { href: `${base}/databases`, label: 'Databases' },
@@ -85,9 +94,20 @@ export default async function OrganizationLayout({
             <li key={link.href}>
               <Link
                 href={link.href}
-                className="inline-block whitespace-nowrap px-3 py-3 text-sm text-muted transition-colors duration-300 hover:text-foreground"
+                className="inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-3 text-sm text-muted transition-colors duration-300 hover:text-foreground"
               >
                 {link.label}
+                {link.count ? (
+                  <span
+                    className="rounded-full px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums"
+                    style={{
+                      color: link.severe ? 'var(--critical)' : 'var(--warn)',
+                      background: 'color-mix(in oklch, currentColor 12%, transparent)',
+                    }}
+                  >
+                    {link.count}
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}

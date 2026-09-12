@@ -13,7 +13,9 @@ import { Notice } from '@/components/notice';
 import { BarChart, DonutChart, LineChart, type ChartPoint } from '@/components/charts';
 import { requireOrgAccess } from '@/lib/auth/guards';
 import { hasPermission } from '@/lib/auth/permissions';
+import { RangePicker } from '@/components/range-picker';
 import { loadDashboardOverview, type DashboardOverview } from '@/lib/dashboard/overview';
+import { parseRange } from '@/lib/dashboard/range';
 import { buildDailySeries } from '@/lib/dashboard/series';
 import { LEVEL_LABELS } from '@/lib/evaluation/engine';
 
@@ -40,10 +42,15 @@ const HEADLINE: Record<string, string> = {
 
 export default async function OrganizationDashboard({
   params,
+  searchParams,
 }: PageProps<'/organizations/[organizationId]'>) {
   const { organizationId } = await params;
   const access = await requireOrgAccess(organizationId);
-  const overview = await loadDashboardOverview(organizationId);
+
+  // The range lives in the URL, so a view can be shared with whoever is being
+  // asked to look at it.
+  const range = parseRange(await searchParams);
+  const overview = await loadDashboardOverview(organizationId, range);
 
   const base = `/organizations/${organizationId}`;
   const canManage = hasPermission(access.role, 'providers:manage');
@@ -53,7 +60,8 @@ export default async function OrganizationDashboard({
 
   return (
     <div className="animate-rise flex flex-col gap-8">
-      <StatusHeader overview={overview} now={now} />
+      <StatusHeader overview={overview} now={now} base={base} />
+      <AlertsPanel overview={overview} base={base} />
 
       {nothingConfigured ? (
         <Notice
@@ -99,7 +107,15 @@ const SECONDARY_BUTTON =
   'rounded-full border border-hairline bg-shell px-4 py-2 text-sm font-medium text-muted transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:text-foreground active:scale-[0.98]';
 
 /** The answer to "is everything healthy", before any detail. */
-function StatusHeader({ overview, now }: { overview: DashboardOverview; now: Date }) {
+function StatusHeader({
+  overview,
+  now,
+  base,
+}: {
+  overview: DashboardOverview;
+  now: Date;
+  base: string;
+}) {
   const collectedAt = [overview.ai.lastCollectedAt, overview.databases.lastCheckedAt]
     .filter((at): at is Date => at !== null)
     .sort((a, b) => b.getTime() - a.getTime())[0];
@@ -111,6 +127,8 @@ function StatusHeader({ overview, now }: { overview: DashboardOverview; now: Dat
         <HealthPill level={overview.level} />
       </div>
 
+      <RangePicker range={overview.window} base={base} />
+
       <p className="max-w-[70ch] text-sm text-muted">
         {overview.level === 'unknown'
           ? 'Some of what this organization tracks cannot be read. Each panel below says which part, and why.'
@@ -118,7 +136,7 @@ function StatusHeader({ overview, now }: { overview: DashboardOverview; now: Dat
               overview.setup.apiKeys === 1 ? '' : 's'
             } and ${overview.setup.databases} database${
               overview.setup.databases === 1 ? '' : 's'
-            }, over the last ${overview.window.days} days.`}
+            }, ${overview.window.label.toLowerCase()}.`}
         {collectedAt ? ` Last collection ${formatAgo(collectedAt, now)}.` : ''}
       </p>
     </header>
@@ -158,7 +176,7 @@ function UsageSummary({ overview }: { overview: DashboardOverview }) {
                 ? 'No tracked provider reports a request count.'
                 : 'No collection has run yet.'
             }
-            note={`over ${overview.window.days} days`}
+            note={overview.window.label.toLowerCase()}
           />
         </div>
         <div className="lg:px-6">
@@ -210,7 +228,7 @@ function UsageSummary({ overview }: { overview: DashboardOverview }) {
           <span className="text-[11px] text-faint">
             {series.length > 0
               ? `${series.length} interval${series.length === 1 ? '' : 's'} stored`
-              : `last ${overview.window.days} days`}
+              : overview.window.label.toLowerCase()}
           </span>
         </div>
 
@@ -302,7 +320,7 @@ function Composition({ overview }: { overview: DashboardOverview }) {
     <section className="glass rounded-(--radius-core) p-5 sm:p-6">
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">{heading}</h2>
-        <span className="text-[11px] text-faint">last {overview.window.days} days</span>
+        <span className="text-[11px] text-faint">{overview.window.label.toLowerCase()}</span>
       </div>
 
       <DonutChart
@@ -326,6 +344,63 @@ function Composition({ overview }: { overview: DashboardOverview }) {
           {silent} of {providers.length} tracked provider{providers.length === 1 ? '' : 's'} report
           no {basis ?? 'usage'} at all, so their share of this total is unknown and no slice is
           drawn for it. Each provider page says which figures it can expose.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The alerts that are open right now.
+ *
+ * Above everything else on purpose. A dashboard's first job is to say whether
+ * anything needs a person, and a list of open conditions answers that before
+ * any chart does.
+ */
+function AlertsPanel({ overview, base }: { overview: DashboardOverview; base: string }) {
+  const { active, counts } = overview.alerts;
+
+  if (counts.total === 0) return null;
+
+  return (
+    <section className="glass rounded-(--radius-core)">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-sm font-medium">Open alerts</h2>
+          <span className="font-mono text-xs tabular-nums text-muted">
+            {counts.critical > 0 ? `${counts.critical} critical` : ''}
+            {counts.critical > 0 && counts.warning > 0 ? ' · ' : ''}
+            {counts.warning > 0 ? `${counts.warning} warning` : ''}
+          </span>
+        </div>
+        <Link
+          href={`${base}/alerts`}
+          className="text-xs text-muted transition-colors hover:text-foreground"
+        >
+          All alerts
+        </Link>
+      </div>
+
+      <ul className="divide-y divide-hairline">
+        {active.map((alert) => (
+          <li key={alert.id} className="flex gap-3 px-5 py-3">
+            <span className="mt-1">
+              <HealthDot level={alert.severity} title={alert.severity} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-medium">{alert.title}</p>
+              <p className="text-xs leading-snug text-muted">{alert.description}</p>
+              <p className="mt-1 text-[11px] text-faint">
+                Open since {alert.triggeredAt.toISOString().replace('T', ' ').slice(0, 16)} UTC
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {counts.total > active.length ? (
+        <p className="border-t border-hairline px-5 py-3 text-[11px] text-faint">
+          {counts.total - active.length} more open.
         </p>
       ) : null}
     </section>
