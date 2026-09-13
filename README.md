@@ -12,12 +12,13 @@ One place to answer:
 - Are database connections approaching `too many clients already`?
 - Are queries getting slower?
 
-> **Status: early development.** Phases 0-12 of 16 are complete — foundation,
+> **Status: early development.** Phases 0-15 of 16 are complete — foundation,
 > data model, authentication, project + provider management with eleven
 > provider adapters, encrypted API key registration, the AI metrics collector
 > and its usage time series, the PostgreSQL collector and its metric series, a
-> central health evaluation engine, and the dashboards built on top of them.
-> Alerts, historical charts and hardening are Phases 13-16.
+> central health evaluation engine, the dashboards built on them, in-dashboard
+> alerts, historical charts, and a testing and hardening pass. Production
+> readiness is Phase 16.
 > See
 > [docs/build-plan.md](docs/build-plan.md) for the full roadmap and
 > [docs/product-spec.md](docs/product-spec.md) for the product intent.
@@ -458,6 +459,78 @@ the reason. One distinction makes it usable rather than constant noise:
   would sit permanently at amber, and the indicator would stop being read within
   a day.
 
+### Alerts
+
+An alert is a *condition that is currently true*, not an event that happened.
+A connection pool sitting above its threshold for six hours is one alert that
+has been open for six hours, not three hundred and sixty alerts. The identity of
+a condition is `(organization, resource, rule)`, and a partial unique index
+enforces one open alert per condition in the database rather than in the code
+that writes them, so two collectors racing cannot produce a duplicate.
+
+Alerts are not evaluated separately from health. They are the evaluation
+engine's actionable findings given a lifecycle, which is what keeps the alert
+list and the dashboard from disagreeing about whether anything is wrong.
+
+Three rules follow from that:
+
+- **Only actionable levels alert.** `critical` and `warning` do; `unknown` does
+  not. "This metric cannot be read" is shown on the resource, where it can be
+  fixed. An alert nobody can clear is what teaches people to ignore the list.
+- **Nothing is dismissible.** A condition clears when a later collection finds
+  it no longer true. A button that hid it without fixing it would turn the list
+  into a record of what people got tired of looking at.
+- **Pausing a resource closes its alerts.** A paused database is never collected
+  from again, so its open conditions could never be re-observed or cleared.
+
+### Charts, and what they refuse to draw
+
+Three shapes, chosen by what the number is: a **line** for a level sampled over
+time, **bars** for a quantity accumulated per interval, a **donut** for
+composition. All hand-drawn SVG, server-rendered, no charting library and no
+client JavaScript.
+
+They exist rather than being pulled off a shelf because of one rule a
+general-purpose library will not keep: **null is not zero**. A missing point is
+drawn as a gap, never interpolated across and never rendered as a zero, because
+"nobody was watching" and "usage was zero" are opposite facts. A measured zero
+still gets a visible stub so it is distinguishable from a bar that was not
+drawn. A donut refuses to present a partial total as a whole one.
+
+Ranges — today, 7 days, 30 days, or a custom span — live in the URL, so a view
+can be bookmarked and sent to whoever is being asked to look at it.
+
+### Security hardening
+
+**Deploy behind a reverse proxy that sets `X-Forwarded-For`.** Sign-in throttling
+reads the client address from it, and exposed directly to the internet a client
+can send any value it likes. Throttling still bounds guessing per account without
+it, but the per-address rule only means something behind a proxy.
+
+- **Content Security Policy with a per-request nonce.** Only scripts carrying
+  that request's nonce execute, so an HTML injection bug cannot run code. Styles
+  allow inline, because charts size themselves with `style` attributes and CSS
+  cannot execute script. Set in `src/proxy.ts`; the policy is in
+  `src/lib/security/headers.ts`.
+- **Framing, sniffing and referrer leaks are off** on every response, API routes
+  included: `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, `Cross-Origin-Opener-Policy`, and HSTS in production
+  (without `includeSubDomains` — pinning an operator's whole domain is their
+  call, not ours).
+- **Sign-in is throttled** in the database, so it holds across instances: 5
+  failures per email and address, 20 per email, 30 per address, per 15 minutes.
+  A throttled attempt costs no password hash, and the message is identical
+  whether or not the account exists.
+- **`/api/health` is public, so it never repeats a database error.** PostgreSQL
+  messages name the role and host; the public report says only that the database
+  could not be reached.
+- **`COLLECTOR_TRIGGER_SECRET` must be at least 32 characters.** The trigger is
+  reachable from the internet and has no account to lock, so length is its only
+  defence. A shorter value refuses to boot.
+
+What the tests prove, item by item against the build plan, is in
+[docs/testing.md](docs/testing.md).
+
 ### API keys and how they are stored
 
 Registering a key follows a fixed flow: confirm the organization tracks the
@@ -552,6 +625,7 @@ src/
     health.ts             health vocabulary and probes
     auth/
       password.ts         scrypt hashing, constant-time verification
+      throttle.ts         sign-in throttling, per email and per address
       session.ts          server-side sessions (hashed tokens)
       access.ts           membership and role resolution
       guards.ts           page guards -- the real security boundary
@@ -582,6 +656,13 @@ src/
     dashboard/
       overview.ts         the organization dashboard, assembled in one call
       analytics.ts        provider, key and project views
+      range.ts            today / 7d / 30d / custom, parsed from the URL
+    security/
+      headers.ts          the CSP and static security headers
+    alerts/
+      engine.ts           findings -> conditions, and reconciliation (pure)
+      repository.ts       the lifecycle, with duplicates barred by an index
+      service.ts          runs at the end of each collection
     credentials/
       crypto.ts           AES-256-GCM, key rotation, fingerprints
       service.ts          register, check, revoke -- the only decryption path

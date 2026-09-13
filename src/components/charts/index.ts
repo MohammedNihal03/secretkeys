@@ -23,6 +23,7 @@ export {
   SERIES_COLORS,
   defaultFormat,
   extent,
+  plotBand,
   seriesColor,
   type ChartPoint,
   type ChartSlice,

@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db/client';
 import { alerts } from '@/lib/db/schema';
 import { getSqlState, PG_ERROR } from '@/lib/db/errors';
-import type { AlertCondition, OpenAlert, Reconciliation } from './engine';
+import type { OpenAlert, Reconciliation } from './engine';
 
 /**
  * Reading and writing alerts.
@@ -62,16 +62,18 @@ export async function listAlerts(query: AlertQuery): Promise<AlertView[]> {
   if (query.status) clauses.push(eq(alerts.status, query.status));
   if (query.resourceId) clauses.push(eq(alerts.resourceId, query.resourceId));
 
-  return getDb()
-    .select(COLUMNS)
-    .from(alerts)
-    .where(and(...clauses))
-    /**
-     * Critical before warning, then newest first. An alerts list sorted purely
-     * by time buries the thing that matters under the thing that just happened.
-     */
-    .orderBy(desc(alerts.severity), desc(alerts.triggeredAt))
-    .limit(query.limit ?? 100);
+  return (
+    getDb()
+      .select(COLUMNS)
+      .from(alerts)
+      .where(and(...clauses))
+      /**
+       * Critical before warning, then newest first. An alerts list sorted purely
+       * by time buries the thing that matters under the thing that just happened.
+       */
+      .orderBy(desc(alerts.severity), desc(alerts.triggeredAt))
+      .limit(query.limit ?? 100)
+  );
 }
 
 /** How many conditions are currently true, by severity. */

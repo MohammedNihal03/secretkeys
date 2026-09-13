@@ -30,9 +30,7 @@ export function RangePicker({ range, base }: { range: TimeRange; base: string })
               href={`${base}?range=${preset.value}`}
               aria-current={active ? 'page' : undefined}
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${
-                active
-                  ? 'bg-foreground text-background'
-                  : 'text-muted hover:text-foreground'
+                active ? 'bg-foreground text-background' : 'text-muted hover:text-foreground'
               }`}
             >
               {preset.label}

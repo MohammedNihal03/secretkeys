@@ -115,7 +115,7 @@ export async function loadDashboardOverview(
   organizationId: string,
   window: TimeRange
 ): Promise<DashboardOverview> {
-  const { from, to, days } = window;
+  const { from, to } = window;
   const range = { organizationId, from, to };
 
   const db = getDb();

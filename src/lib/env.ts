@@ -8,6 +8,13 @@ import { z } from 'zod';
  * only -- never their values -- so secrets cannot leak into logs or stack traces.
  */
 
+/**
+ * The collector trigger is reachable from the internet and has no account to
+ * lock, so its only defence against guessing is length. Short secrets are
+ * refused at boot rather than accepted and regretted.
+ */
+const MIN_TRIGGER_SECRET_LENGTH = 32;
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
@@ -49,7 +56,12 @@ const envSchema = z.object({
    * unauthenticated endpoint that makes this server call every registered
    * provider would be a denial-of-service lever against those providers.
    */
-  COLLECTOR_TRIGGER_SECRET: optionalSecret(),
+  COLLECTOR_TRIGGER_SECRET: optionalSecret().refine(
+    (value) => value === undefined || value.length >= MIN_TRIGGER_SECRET_LENGTH,
+    {
+      message: `must be at least ${MIN_TRIGGER_SECRET_LENGTH} characters (generate one with \`npm run generate:key\`)`,
+    }
+  ),
 });
 
 /**

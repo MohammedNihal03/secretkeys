@@ -48,7 +48,15 @@ export function seriesColor(index: number): string {
   return SERIES_COLORS[index % SERIES_COLORS.length];
 }
 
-/** The numeric range a chart is drawn against, ignoring gaps. */
+/**
+ * The range of the actual readings, ignoring gaps.
+ *
+ * Deliberately unpadded. An earlier version widened a flat series here so the
+ * line would not sit on the axis, and the padded numbers reached the caption --
+ * a database at a steady 100% cache hit ratio was labelled "90% to 110%", which
+ * is not a possible value for a ratio. Padding is a drawing concern, so it
+ * belongs to whatever is drawing, and never to what is reported.
+ */
 export function extent(points: readonly ChartPoint[]): { min: number; max: number } {
   const values = points
     .map((point) => point.value)
@@ -56,16 +64,20 @@ export function extent(points: readonly ChartPoint[]): { min: number; max: numbe
 
   if (values.length === 0) return { min: 0, max: 0 };
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
 
-  /**
-   * A flat series still needs a band to be drawn in, or every point lands on
-   * the same pixel and the line vanishes into the axis.
-   */
-  return min === max
-    ? { min: min === 0 ? 0 : min * 0.9, max: max === 0 ? 1 : max * 1.1 }
-    : { min, max };
+/**
+ * The band a flat series is drawn inside.
+ *
+ * Only for positioning: without it every point lands on the same pixel and the
+ * line disappears into the edge of the box.
+ */
+export function plotBand(min: number, max: number): { base: number; span: number } {
+  if (min !== max) return { base: min, span: max - min };
+
+  const padding = min === 0 ? 1 : Math.abs(min) * 0.1;
+  return { base: min - padding, span: padding * 2 };
 }
 
 /** Formats a value, falling back to a plain localized number. */

@@ -108,7 +108,11 @@ function rolling(days: number, now: Date): TimeRange {
 }
 
 /** Two `YYYY-MM-DD` dates, or null when they do not describe a usable range. */
-function parseCustom(from: string | undefined, to: string | undefined, now: Date): TimeRange | null {
+function parseCustom(
+  from: string | undefined,
+  to: string | undefined,
+  now: Date
+): TimeRange | null {
   if (!from || !to) return null;
 
   const start = new Date(`${from}T00:00:00.000Z`);

@@ -102,6 +102,30 @@ export function aggregateStatus(statuses: HealthStatus[]): HealthStatus {
   return precedence.find((candidate) => statuses.includes(candidate)) ?? 'unknown';
 }
 
+/** What an unauthenticated caller sees instead of a driver error message. */
+export const PUBLIC_DATABASE_ERROR = 'The dashboard database could not be reached.';
+
+/**
+ * The health report as it may be shown to anyone.
+ *
+ * `/api/health` is unauthenticated -- load balancers and uptime checks cannot
+ * sign in -- so it must not repeat a PostgreSQL error verbatim. Those messages
+ * name the database role (`password authentication failed for user "..."`),
+ * the host, or the database, which is reconnaissance handed out for free. The
+ * status and latency are what a health check needs; the detail is for the
+ * operator, who has the server logs.
+ */
+export function toPublicReport(report: HealthReport): HealthReport {
+  const { database } = report.checks;
+
+  return {
+    ...report,
+    checks: {
+      database: database.error ? { ...database, error: PUBLIC_DATABASE_ERROR } : database,
+    },
+  };
+}
+
 export async function getHealthReport(): Promise<HealthReport> {
   const database = await checkDatabase();
 

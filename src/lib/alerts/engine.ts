@@ -54,10 +54,7 @@ export function conditionFor(finding: Finding, subject: string): AlertCondition 
 }
 
 /** Every condition currently true for one resource. */
-export function conditionsFor(
-  findings: readonly Finding[],
-  subject: string
-): AlertCondition[] {
+export function conditionsFor(findings: readonly Finding[], subject: string): AlertCondition[] {
   return findings
     .map((finding) => conditionFor(finding, subject))
     .filter((condition): condition is AlertCondition => condition !== null);

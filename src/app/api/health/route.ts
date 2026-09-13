@@ -1,4 +1,4 @@
-import { getHealthReport } from '@/lib/health';
+import { getHealthReport, toPublicReport } from '@/lib/health';
 
 /**
  * Liveness/readiness endpoint for the observability system itself.
@@ -10,7 +10,8 @@ import { getHealthReport } from '@/lib/health';
 export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<Response> {
-  const report = await getHealthReport();
+  // Unauthenticated, so the driver's error text is replaced before it leaves.
+  const report = toPublicReport(await getHealthReport());
 
   // `degraded` still serves traffic, so only a hard failure returns 503.
   const httpStatus = report.status === 'unhealthy' ? 503 : 200;

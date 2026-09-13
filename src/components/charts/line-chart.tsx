@@ -1,4 +1,4 @@
-import { defaultFormat, extent, type ChartPoint, type Formatter } from './types';
+import { defaultFormat, extent, plotBand, type ChartPoint, type Formatter } from './types';
 
 /**
  * A line chart over time, with an area fill under it.
@@ -37,8 +37,9 @@ export function LineChart({
   color = 'var(--accent)',
   bare = false,
 }: LineChartProps) {
+  // `min` and `max` are what is reported; the band is only how it is drawn.
   const { min, max } = extent(points);
-  const span = max - min || 1;
+  const { base, span } = plotBand(min, max);
 
   const readings = points.filter((point) => point.value !== null);
 
@@ -51,7 +52,7 @@ export function LineChart({
    * placed in the middle rather than at the left edge.
    */
   const x = (index: number) => (points.length === 1 ? 50 : (index / (points.length - 1)) * 100);
-  const y = (value: number) => height - ((value - min) / span) * height;
+  const y = (value: number) => height - ((value - base) / span) * height;
 
   const segments: Segment[] = [];
   let current: Segment | null = null;
@@ -82,7 +83,9 @@ export function LineChart({
         className="w-full"
         style={{ height }}
         role="img"
-        aria-label={`${title}. Latest ${format(last)}, ranging from ${format(min)} to ${format(max)} across ${points.length} intervals${gaps > 0 ? `, with ${gaps} not collected` : ''}.`}
+        aria-label={`${title}. Latest ${format(last)}, ${
+          min === max ? `steady at ${format(min)}` : `ranging from ${format(min)} to ${format(max)}`
+        } across ${points.length} intervals${gaps > 0 ? `, with ${gaps} not collected` : ''}.`}
       >
         {segments.map((segment, index) => {
           const line = segment.points
@@ -160,7 +163,7 @@ export function LineChart({
         <figcaption className="flex items-center justify-between gap-3 text-[11px] text-faint">
           <span>{points[0]?.label ?? ''}</span>
           <span className="font-mono tabular-nums">
-            {format(min)} to {format(max)}
+            {min === max ? format(min) : `${format(min)} to ${format(max)}`}
             {gaps > 0 ? ` · ${gaps} not collected` : ''}
           </span>
           <span>{points.at(-1)?.label ?? ''}</span>

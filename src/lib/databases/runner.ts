@@ -113,7 +113,8 @@ export async function runDatabaseCollection(
   const collect = options.collect ?? collectDatabase;
   const acquireLock =
     options.acquireLock ?? (() => acquireCollectorLock(DATABASE_COLLECTOR_LOCK_KEY));
-  const syncAlerts = options.syncAlerts ?? ((snapshot: DatabaseSnapshot) => syncDatabaseAlerts(snapshot, now()));
+  const syncAlerts =
+    options.syncAlerts ?? ((snapshot: DatabaseSnapshot) => syncDatabaseAlerts(snapshot, now()));
   const saveCheck =
     options.saveCheck ??
     ((snapshot: DatabaseSnapshot) =>

@@ -28,6 +28,7 @@ export * from './enums';
 export * from './organizations';
 export * from './users';
 export * from './sessions';
+export * from './login-attempts';
 export * from './organization-members';
 export * from './projects';
 export * from './ai-providers';

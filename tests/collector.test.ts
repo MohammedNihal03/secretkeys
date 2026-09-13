@@ -518,6 +518,8 @@ describe('runCollection', () => {
           acquireLock,
           // Never the default sink: a unit test must not reach a database.
           sink: options.sink ?? discardingUsageSink,
+          // Nor the default alert writer, for the same reason.
+          syncAlerts: async () => ({ raised: 0, resolved: 0 }),
         }),
     };
   }
@@ -636,6 +638,7 @@ describe('runCollection', () => {
       saveCredentialCheck: async () => {},
       acquireLock: async () => ({ release: async () => {} }),
       sink: discardingUsageSink,
+      syncAlerts: async () => ({ raised: 0, resolved: 0 }),
     });
 
     expect(summary.failed).toBe(1);
@@ -668,6 +671,7 @@ describe('runCollection', () => {
       saveCredentialCheck: async () => {},
       acquireLock: async () => ({ release: async () => {} }),
       sink: discardingUsageSink,
+      syncAlerts: async () => ({ raised: 0, resolved: 0 }),
     });
 
     // Serialised per provider, so the collector does not trigger the very rate
@@ -689,6 +693,7 @@ describe('runCollection', () => {
       saveCredentialCheck: async () => {},
       acquireLock: async () => ({ release: async () => {} }),
       sink: discardingUsageSink,
+      syncAlerts: async () => ({ raised: 0, resolved: 0 }),
     });
 
     expect(summary.byProvider.OpenAI).toMatchObject({ targets: 2, success: 2 });

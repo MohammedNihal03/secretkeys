@@ -37,7 +37,11 @@ const DATABASE_SERIES = [
     label: 'Query duration',
     format: (value: number) => `${value.toFixed(1)} s`,
   },
-  { metric: 'health.responseTimeMs', label: 'Response time', format: (value: number) => `${Math.round(value)} ms` },
+  {
+    metric: 'health.responseTimeMs',
+    label: 'Response time',
+    format: (value: number) => `${Math.round(value)} ms`,
+  },
   { metric: 'resources.databaseSizeBytes', label: 'Database size', format: bytes },
   {
     metric: 'postgres.cacheHitRatioInterval',
@@ -54,9 +58,18 @@ const DATABASE_SERIES = [
  * answer.
  */
 const UNAVAILABLE = [
-  { label: 'CPU', why: 'PostgreSQL does not report host CPU. It needs an operating-system agent, or a managed provider’s metrics API.' },
-  { label: 'Memory', why: 'PostgreSQL does not report host memory. Shared buffers are visible; the machine’s total is not.' },
-  { label: 'Disk', why: 'PostgreSQL does not report free disk space. Database size, charted above, is what it does know.' },
+  {
+    label: 'CPU',
+    why: 'PostgreSQL does not report host CPU. It needs an operating-system agent, or a managed provider’s metrics API.',
+  },
+  {
+    label: 'Memory',
+    why: 'PostgreSQL does not report host memory. Shared buffers are visible; the machine’s total is not.',
+  },
+  {
+    label: 'Disk',
+    why: 'PostgreSQL does not report free disk space. Database size, charted above, is what it does know.',
+  },
 ];
 
 export default async function HistoryPage({
@@ -98,8 +111,7 @@ export default async function HistoryPage({
         <h1 className="text-2xl font-semibold tracking-tight">History</h1>
         <p className="max-w-[70ch] text-sm text-muted">
           Stored metrics over {range.label.toLowerCase()}. Every chart is drawn from rows a
-          collector wrote; a gap is a period with nothing stored, not a period of nothing
-          happening.
+          collector wrote; a gap is a period with nothing stored, not a period of nothing happening.
         </p>
         <RangePicker range={range} base={base} />
       </header>
@@ -255,7 +267,8 @@ function bucketed(
     const point = byBucket.get(at);
 
     points.push({
-      label: new Date(at).toLocaleString('en-US',
+      label: new Date(at).toLocaleString(
+        'en-US',
         range.bucket === 'hour'
           ? { hour: '2-digit', minute: '2-digit' }
           : { month: 'short', day: 'numeric' }

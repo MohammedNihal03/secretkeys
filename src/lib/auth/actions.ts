@@ -1,6 +1,7 @@
 'use server';
 
 import { eq } from 'drizzle-orm';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
@@ -10,6 +11,15 @@ import { clearSessionCookie, readSessionCookie, setSessionCookie } from './cooki
 import { safeRedirectPath } from './guards';
 import { getDummyDigest, normalizeEmail, verifyPassword } from './password';
 import { createSession, revokeSessionByToken } from './session';
+import {
+  checkThrottle,
+  clearOnSuccess,
+  clientAddress,
+  databaseThrottleStore,
+  recordFailure,
+  throttledMessage,
+  throttleKeys,
+} from './throttle';
 
 /**
  * Sign-in and sign-out.
@@ -47,6 +57,19 @@ export async function signIn(_previous: SignInState, formData: FormData): Promis
   }
 
   const { email, password, next } = parsed.data;
+  const normalized = normalizeEmail(email);
+
+  /**
+   * Throttled before anything else, including the password check: a refused
+   * request must not cost a scrypt derivation, or throttling becomes a way to
+   * exhaust the server instead of a defence against it.
+   */
+  const keys = throttleKeys(normalized, clientAddress(await headers()));
+  const decision = await checkThrottle(keys, databaseThrottleStore);
+
+  if (!decision.allowed) {
+    return { error: throttledMessage(decision.retryAfterMs) };
+  }
 
   const [user] = await getDb()
     .select({
@@ -55,7 +78,7 @@ export async function signIn(_previous: SignInState, formData: FormData): Promis
       status: users.status,
     })
     .from(users)
-    .where(eq(users.email, normalizeEmail(email)))
+    .where(eq(users.email, normalized))
     .limit(1);
 
   /**
@@ -69,8 +92,12 @@ export async function signIn(_previous: SignInState, formData: FormData): Promis
   const passwordMatches = await verifyPassword(password, digest);
 
   if (!user || !passwordMatches || user.status !== 'active') {
+    // Counted for unknown emails too, so throttling reveals nothing about accounts.
+    await recordFailure(keys, databaseThrottleStore);
     return { error: INVALID_CREDENTIALS };
   }
+
+  await clearOnSuccess(keys, databaseThrottleStore);
 
   const { token, expiresAt } = await createSession(user.id);
   await setSessionCookie(token, expiresAt);
